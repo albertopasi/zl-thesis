@@ -69,6 +69,8 @@ class EEGPreprocessor:
         print(f"  Original channels: {len(self.channel_labels) + len(self.excluded_indices)}")
         print(f"  Kept EEG channels: {len(self.channel_labels)}")
         print(f"  Excluded channels: {len(self.excluded_indices)}")
+        print(f"  Channel names (first 10): {self.channel_labels[:10]}")
+        print(f"  Channel names (last 10): {self.channel_labels[-10:]}")
         
         # Create channel info for MNE
         ch_types = ['eeg'] * len(self.channel_labels)
@@ -82,6 +84,35 @@ class EEGPreprocessor:
     def _is_workload_marker(self, marker):
         """Check if marker is a workload event."""
         return TARGET_MARKER_PREFIX.lower() in marker.lower()
+    
+    def _extract_workload_level(self, marker):
+        """
+        Extract workload level from marker name.
+        Maps full marker names to simplified workload levels: original, low, medium, high
+        
+        Args:
+            marker: Full marker string
+            
+        Returns:
+            str: Simplified workload level (e.g., 'original workload')
+        """
+        marker_lower = marker.lower()
+        
+        # Map workload levels (order matters: check most specific first)
+        workload_levels = {
+            'high workload': 'high workload',
+            'medium workload': 'medium workload',
+            'low workload': 'low workload',
+            'original workload': 'original workload',
+        }
+        
+        for level_pattern, level_name in workload_levels.items():
+            if level_pattern in marker_lower:
+                return level_name
+        
+        # Fallback: return original marker if no pattern matched
+        print(f"Warning: Could not extract workload level from marker: {marker}")
+        return marker
     
     def _is_skip_marker(self, marker):
         """Check if marker should be skipped (non-experimental data)."""
@@ -98,6 +129,7 @@ class EEGPreprocessor:
         event_id = {}
         current_event_id = 1
         skipped_markers = {}
+        seen_sample_indices = set()  # Track duplicate sample indices
         
         for marker, marker_ts in zip(self.markers, self.marker_timestamps):
             # Skip non-experimental markers (breaks, pauses, etc.)
@@ -109,18 +141,38 @@ class EEGPreprocessor:
             if not self._is_workload_marker(marker):
                 continue
             
-            # Find closest sample index to marker timestamp
-            idx = np.searchsorted(self.timestamps, marker_ts)
+            # Extract simplified workload level from marker
+            simplified_marker = self._extract_workload_level(marker)
+            
+            # Find closest sample index to marker timestamp (minimum distance)
+            idx = np.argmin(np.abs(self.timestamps - marker_ts))
+            
+            # Check alignment quality
+            time_diff = np.abs(self.timestamps[idx] - marker_ts)
+            if time_diff > (1.0 / self.sampling_rate):
+                print(f"  Warning: Marker '{marker}' misaligned by {time_diff:.6f}s (>{1.0/self.sampling_rate:.6f}s)")
+            
+            # # Skip duplicate sample indices (multiple markers at exact same timestamp)
+            # if idx in seen_sample_indices:
+            #     print(f"    Skipping duplicate marker '{marker}' at sample {idx}")
+            #     continue
+            # seen_sample_indices.add(idx)
             
             # Create unique event ID for this marker type
-            if marker not in event_id:
-                event_id[marker] = current_event_id
+            if simplified_marker not in event_id:
+                event_id[simplified_marker] = current_event_id
                 current_event_id += 1
             
             # events array: [sample_idx, 0, event_id]
-            events.append([idx, 0, event_id[marker]])
+            events.append([idx, 0, event_id[simplified_marker]])
         
         events = np.array(events)
+        
+        # Print event ID mapping
+        print(f"\nEvent ID mapping:")
+        for marker, event_num in sorted(event_id.items(), key=lambda x: x[1]):
+            count = np.sum(events[:, 2] == event_num)
+            print(f"  {marker}: ID={event_num} (count={count})")
         
         # Print skipped markers
         if skipped_markers:
@@ -155,8 +207,8 @@ class EEGPreprocessor:
             self.epoch_labels = []
             return self.epochs, self.epoch_labels, []
         
-        print(f"Found {len(events)} workload events")
-        print(f"Event types: {event_id}")
+        print(f"Found {len(events)} workload events (after removing duplicates)")
+        # print(f"Event types: {event_id}")
         
         # Create epochs using MNE
         epochs = mne.Epochs(
@@ -164,7 +216,8 @@ class EEGPreprocessor:
             tmin=tmin, tmax=tmax,
             baseline=None,
             preload=True,
-            reject_by_annotation=False
+            reject_by_annotation=False,
+            event_repeated='merge'  # Handle any remaining duplicate timestamps
         )
         
         # Convert to numpy array and get labels

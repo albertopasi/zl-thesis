@@ -14,7 +14,7 @@ This project translates the [REVE tutorial Jupyter notebook](https://brain-bzh.g
 ## Project Structure
 
 ```
-src/
+tutorial/
 ├── __init__.py          # Package initialization and documentation
 ├── config.py            # Configuration and hyperparameters
 ├── model.py             # Model loading, setup, and inspection
@@ -55,16 +55,16 @@ login()
 
 ### 2. Running the Training
 
-Execute the main script from the `src` directory:
+Execute the main script from the `tutorial` directory:
 
 ```bash
-cd src
+cd tutorial
 python main.py
 ```
 
 ## Configuration
 
-Edit `src/config.py` to adjust:
+Edit `tutorial/config.py` to adjust:
 
 - `BATCH_SIZE`: Training batch size (default: 64)
 - `N_EPOCHS`: Number of training epochs (default: 20)

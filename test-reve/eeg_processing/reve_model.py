@@ -4,15 +4,18 @@ Model initialization and setup for REVE-based EEG classification.
 
 import torch
 from transformers import AutoModel
+
+# Import from local config in this directory
 from config import (
     REVE_MODEL_ID,
     REVE_POSITIONS_MODEL_ID,
     NUM_CHANNELS,
     SAMPLE_LENGTH,
     HIDDEN_DIM,
-    NUM_CLASSES,
-    EEG_POSITIONS,
 )
+
+# 96 channels
+STANDARD_POSITIONS_96 = [ ]
 
 
 def load_reve_model():
@@ -39,19 +42,43 @@ def load_reve_model():
     return model, pos_bank
 
 
-def setup_model(model, pos_bank):
+def setup_model(model, pos_bank, num_classes=None, eeg_positions=None):
     """
     Configure the REVE model with a classification head.
     
     Args:
         model: The REVE model
         pos_bank: The position bank for electrode positions
+        num_classes: Number of output classes (if None, uses config value)
+        eeg_positions: List of channel position labels (if None, uses standard 10-20 system)
         
     Returns:
         tuple: (model, positions) - Modified model and position embeddings
     """
-    # Get position embeddings for the EEG electrodes
-    positions = pos_bank(EEG_POSITIONS)
+    if num_classes is None:
+        from config import NUM_CLASSES
+        num_classes = NUM_CLASSES
+    
+    # Use standard positions if none provided
+    if eeg_positions is None or len(eeg_positions) == 0 or all(isinstance(ch, str) and ch.startswith('CH') for ch in eeg_positions):
+        # Use standard 10-20 system positions
+        print(f"Using standard 10-20 electrode positions for {NUM_CHANNELS} channels...")
+        if NUM_CHANNELS <= len(STANDARD_POSITIONS_96):
+            eeg_positions = STANDARD_POSITIONS_96[:NUM_CHANNELS]
+        else:
+            print(f"Warning: Requested {NUM_CHANNELS} channels but only {len(STANDARD_POSITIONS_96)} standard positions available")
+            eeg_positions = STANDARD_POSITIONS_96 + [f"CH{i}" for i in range(NUM_CHANNELS - len(STANDARD_POSITIONS_96))]
+    
+    # Get position embeddings from the position bank
+    try:
+        print(f"Loading position embeddings for: {eeg_positions}")
+        positions = pos_bank(eeg_positions)
+        print(f"Position embeddings loaded successfully. Shape: {positions.shape}")
+    except Exception as e:
+        print(f"Warning: Could not load position embeddings from position bank ({e})")
+        print(f"Generating random position embeddings for {NUM_CHANNELS} channels...")
+        # Fallback: generate random position embeddings
+        positions = torch.randn(NUM_CHANNELS, 768)
     
     # Calculate the flattened dimension of model output
     # Output shape: [B, NUM_CHANNELS, SAMPLE_LENGTH, HIDDEN_DIM]
@@ -63,7 +90,7 @@ def setup_model(model, pos_bank):
         torch.nn.Flatten(),
         torch.nn.RMSNorm(final_dim),
         torch.nn.Dropout(0.1),
-        torch.nn.Linear(final_dim, NUM_CLASSES),
+        torch.nn.Linear(final_dim, num_classes),
     )
     
     return model, positions

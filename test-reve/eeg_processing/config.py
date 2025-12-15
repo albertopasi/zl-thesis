@@ -13,8 +13,8 @@ MARKER_STREAM_INDEX = 5    # 'ZLT-markers' - Primary event markers
 
 # EEG parameters
 SAMPLING_RATE = 500  # Hz
-NUM_EEG_CHANNELS = 96  # Keep only EEG channels (exclude AUX1, AUX2, Markers)
-EXCLUDE_CHANNELS = ['AUX1', 'AUX2', 'Markers']  # Non-EEG auxiliary channels to remove
+NUM_EEG_CHANNELS = 96  # Keep only EEG channels (exclude AUX_1, AUX_2, Markers)
+EXCLUDE_CHANNELS = ['AUX_1', 'AUX_2', 'Markers']  # Non-EEG auxiliary channels to remove
 
 # Epoch extraction - Time window around markers
 TMIN = -1.5  # Start of epoch relative to marker (seconds)
@@ -52,6 +52,18 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'output')
 SAVE_PROCESSED_DATA = True
 SAVE_FEATURES = True
 
-# REVE model (from parent src config)
-REVE_MODEL_ID = "brain-bzh/reve-base-model"
-REVE_POSITIONS_MODEL_ID = "brain-bzh/reve-positions-model"
+# REVE model parameters
+REVE_MODEL_ID = "brain-bzh/reve-base"
+REVE_POSITIONS_MODEL_ID = "brain-bzh/reve-positions"
+
+# Model architecture parameters
+HIDDEN_DIM = 512
+NUM_CHANNELS = 96 
+SAMPLE_LENGTH = EPOCH_SAMPLES  # Dynamic: calculated from TMIN, TMAX, SAMPLING_RATE
+NUM_CLASSES = None  # Determined dynamically from actual markers in data (set during preprocessing)
+
+# Training parameters (for future use)
+BATCH_SIZE = 32
+N_EPOCHS = 20
+LEARNING_RATE = 1e-3
+RANDOM_SEED = 42

@@ -115,7 +115,7 @@ class XDFLoader:
         timestamps = np.array(stream['time_stamps'])
         
         print(f"Total markers: {len(markers)}")
-        print(f"Unique markers: {set(markers)}")
+        # print(f"Unique markers: {set(markers)}")
         
         return markers, timestamps
     

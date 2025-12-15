@@ -4,42 +4,53 @@ REVE-based feature extraction from EEG epochs.
 
 import torch
 import numpy as np
-from pathlib import Path
-import sys
 
-# Add parent src to path for importing REVE modules
-parent_src = Path(__file__).parent.parent / 'src'
-sys.path.insert(0, str(parent_src))
-
-from model import load_reve_model, setup_model, get_device, freeze_backbone
-from config import REVE_MODEL_ID, REVE_POSITIONS_MODEL_ID
+# Import REVE model functions from local module
+from reve_model import (
+    load_reve_model,
+    setup_model,
+    get_device,
+    freeze_backbone
+)
 
 
 class REVEFeatureExtractor:
     """Extract features from EEG epochs using REVE model."""
     
-    def __init__(self, device=None, load_positions=True):
+    def __init__(self, device=None, load_positions=True, channel_labels=None):
         """
         Initialize REVE feature extractor.
         
         Args:
             device: torch.device (default: auto-detect GPU/CPU)
             load_positions: Load position bank for electrode positions
+            channel_labels: List of channel labels (if None, generates default labels)
         """
         self.device = device or get_device()
         self.model = None
         self.pos_bank = None
         self.positions = None
+        self.channel_labels = channel_labels
         self.load_positions = load_positions
         
-    def load_model(self):
-        """Load REVE model and position bank."""
+    def load_model(self, num_classes=None):
+        """
+        Load REVE model and position bank.
+        
+        Args:
+            num_classes: Number of output classes (if None, uses config value)
+        """
         print("Loading REVE model...")
         self.model, self.pos_bank = load_reve_model()
         
         if self.load_positions:
             print("Setting up model with position embeddings...")
-            self.model, self.positions = setup_model(self.model, self.pos_bank)
+            self.model, self.positions = setup_model(
+                self.model, 
+                self.pos_bank, 
+                num_classes=num_classes,
+                eeg_positions=self.channel_labels
+            )
         
         self.model = self.model.to(self.device)
         self.model.eval()
@@ -81,11 +92,17 @@ class REVEFeatureExtractor:
                 batch_end = min(i + batch_size, num_epochs)
                 batch = epochs_tensor[i:batch_end].to(self.device)
                 
-                # Prepare positions for batch
-                if self.positions is not None:
-                    positions = self.positions.repeat(batch.shape[0], 1, 1).to(self.device)
-                    output = self.model(batch, positions)
-                else:
+                # Prepare positions for batch (like in tutorial: repeat for batch dimension)
+                try:
+                    if self.positions is not None:
+                        # positions shape: (num_channels, embedding_dim)
+                        # After repeat: (batch_size, num_channels, embedding_dim)
+                        pos = self.positions.repeat(batch.shape[0], 1, 1).to(self.device)
+                        output = self.model(batch, pos)
+                    else:
+                        output = self.model(batch)
+                except Exception as e:
+                    print(f"Warning: Model forward failed ({e}). Trying without positions...")
                     output = self.model(batch)
                 
                 if return_logits:

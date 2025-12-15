@@ -80,8 +80,12 @@ def process_subject(subject_id, session_id, extract_features=True, save_data=Tru
         print("\n[Step 3] Extracting REVE features...")
         
         try:
-            feature_extractor = REVEFeatureExtractor()
-            feature_extractor.load_model()
+            # Determine number of classes from unique labels
+            num_classes = len(set(epoch_labels))
+            print(f"Number of classes determined from data: {num_classes}")
+            
+            feature_extractor = REVEFeatureExtractor(channel_labels=channel_labels)
+            feature_extractor.load_model(num_classes=num_classes)
             
             # Extract features organized by label
             label_features = feature_extractor.extract_features_for_labels(
