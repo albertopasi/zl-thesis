@@ -52,6 +52,21 @@ def process_subject(subject_id, session_id, extract_features=True, save_data=Tru
         print(f"ERROR: {e}")
         return results
     
+    # Validate loaded data
+    if eeg_data.shape[0] == 0 or eeg_data.shape[1] == 0:
+        print(f"ERROR: No valid EEG data loaded!")
+        print(f"  EEG shape: {eeg_data.shape}")
+        print(f"  Expected: (samples, channels)")
+        return results
+    
+    if len(markers) == 0:
+        print(f"ERROR: No markers found!")
+        return results
+    
+    print(f"  EEG shape: {eeg_data.shape} (samples, channels)")
+    print(f"  Sampling rate: {sfreq} Hz")
+    print(f"  Markers: {len(markers)}")
+    
     # Step 2: Preprocess and extract epochs
     print("\n[Step 2] Preprocessing with MNE and extracting epochs...")
     preprocessor = EEGPreprocessor(
@@ -77,27 +92,33 @@ def process_subject(subject_id, session_id, extract_features=True, save_data=Tru
     
     # Step 3: Extract REVE features
     if extract_features:
-        print("\n[Step 3] Extracting REVE features...")
+        print("\n[Step 3] Extracting REVE features with mapped position embeddings...")
         
         try:
             # Determine number of classes from unique labels
             num_classes = len(set(epoch_labels))
             print(f"Number of classes determined from data: {num_classes}")
             
+            # Initialize feature extractor (uses pre-mapped positions automatically)
             feature_extractor = REVEFeatureExtractor(channel_labels=channel_labels)
             feature_extractor.load_model(num_classes=num_classes)
             
-            # Extract features organized by label
+            # Extract features once
+            features = feature_extractor.extract_features(epochs, batch_size=4)
+            
+            # Organize by label (no re-extraction)
             label_features = feature_extractor.extract_features_for_labels(
-                epochs, epoch_labels, batch_size=4
+                features, epoch_labels
             )
             
             results['label_features'] = label_features
-            results['features'] = feature_extractor.extract_features(epochs)
+            results['features'] = features
             
         except Exception as e:
             print(f"WARNING: Feature extraction failed: {e}")
             print("Continuing with preprocessed epochs only...")
+            import traceback
+            traceback.print_exc()
     
     # Step 4: Save results
     if save_data:

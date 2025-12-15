@@ -3,8 +3,11 @@ Verify that CapTrak electrode numbers match XDF channel order.
 This ensures electrode 1 is at the right position, electrode 2 at the right position, etc.
 """
 
-import json
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import json
 import pyxdf
 from config import DATA_ROOT
 
@@ -13,7 +16,7 @@ def verify_electrode_mapping():
     """Check if CapTrak electrodes map correctly to XDF channels."""
     
     # Load electrode positions
-    json_path = Path(__file__).parent / "electrode_positions.json"
+    json_path = Path(__file__).parent.parent / "electrodes_pos" / "electrode_positions.json"
     if not json_path.exists():
         print("electrode_positions.json not found")
         return

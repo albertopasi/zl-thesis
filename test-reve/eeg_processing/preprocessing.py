@@ -226,14 +226,24 @@ class EEGPreprocessor:
         # Create reverse mapping from event_id to marker names
         id_to_marker = {v: k for k, v in event_id.items()}
         
-        labels = [id_to_marker[int(e[2])] for e in events if int(e[2]) in id_to_marker]
+        # Get the actual events that were used (MNE may reject/merge some)
+        actual_events = epochs.events
+        labels = [id_to_marker[int(e[2])] for e in actual_events if int(e[2]) in id_to_marker]
+        
+        # Validate label count matches epoch count
+        if len(labels) != epochs_data.shape[0]:
+            print(f"WARNING: Event/epoch mismatch!")
+            print(f"  Events: {len(labels)}")
+            print(f"  Actual epochs: {epochs_data.shape[0]}")
+            print(f"  Using actual epoch count")
+            labels = labels[:epochs_data.shape[0]]
         
         # Create metadata
         metadata = []
-        for i, (event, label) in enumerate(zip(events, labels)):
+        for i, (event, label) in enumerate(zip(actual_events, labels)):
             metadata.append({
                 'marker': label,
-                'marker_timestamp': self.timestamps[int(event[0])],
+                'marker_timestamp': self.timestamps[int(event[0])] if int(event[0]) < len(self.timestamps) else None,
                 'sample_index': int(event[0]),
                 'epoch_num': i
             })

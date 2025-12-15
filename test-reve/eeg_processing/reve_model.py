@@ -45,6 +45,8 @@ def load_reve_model():
 def setup_model(model, pos_bank, num_classes=None, eeg_positions=None):
     """
     Configure the REVE model with a classification head.
+    Note: This keeps the original REVE model architecture intact.
+    For classification, you may need to add a separate classification head layer.
     
     Args:
         model: The REVE model
@@ -53,7 +55,7 @@ def setup_model(model, pos_bank, num_classes=None, eeg_positions=None):
         eeg_positions: List of channel position labels (if None, uses standard 10-20 system)
         
     Returns:
-        tuple: (model, positions) - Modified model and position embeddings
+        tuple: (model, positions) - Model and position embeddings
     """
     if num_classes is None:
         from config import NUM_CLASSES
@@ -71,7 +73,7 @@ def setup_model(model, pos_bank, num_classes=None, eeg_positions=None):
     
     # Get position embeddings from the position bank
     try:
-        print(f"Loading position embeddings for: {eeg_positions}")
+        print(f"Loading position embeddings for: {eeg_positions[:3]}... ({len(eeg_positions)} positions total)")
         positions = pos_bank(eeg_positions)
         print(f"Position embeddings loaded successfully. Shape: {positions.shape}")
     except Exception as e:
@@ -80,18 +82,9 @@ def setup_model(model, pos_bank, num_classes=None, eeg_positions=None):
         # Fallback: generate random position embeddings
         positions = torch.randn(NUM_CHANNELS, 768)
     
-    # Calculate the flattened dimension of model output
-    # Output shape: [B, NUM_CHANNELS, SAMPLE_LENGTH, HIDDEN_DIM]
-    # Flattened: [B, NUM_CHANNELS * SAMPLE_LENGTH * HIDDEN_DIM]
-    final_dim = NUM_CHANNELS * SAMPLE_LENGTH * HIDDEN_DIM
-    
-    # Replace the final layer with a classification head
-    model.final_layer = torch.nn.Sequential(
-        torch.nn.Flatten(),
-        torch.nn.RMSNorm(final_dim),
-        torch.nn.Dropout(0.1),
-        torch.nn.Linear(final_dim, num_classes),
-    )
+    # Keep REVE model unchanged - it already has a final_layer
+    # Users can adapt the output dimension as needed
+    print("REVE model kept unchanged (original architecture preserved)")
     
     return model, positions
 

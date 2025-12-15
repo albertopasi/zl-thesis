@@ -3,8 +3,11 @@ Simple electrode position visualization using MNE.
 Uses actual channel labels from XDF file.
 """
 
-import json
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import json
 import numpy as np
 import mne
 import pyxdf
@@ -13,7 +16,7 @@ from config import DATA_ROOT
 
 def load_positions():
     """Load positions from JSON file."""
-    json_path = Path(__file__).parent / "electrode_positions.json"
+    json_path = Path(__file__).parent.parent / "electrodes_pos" / "electrode_positions.json"
     
     if json_path.exists():
         print(f"✓ Loading positions from: {json_path.name}\n")
