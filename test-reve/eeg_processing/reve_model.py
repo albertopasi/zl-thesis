@@ -42,25 +42,67 @@ def load_reve_model():
     return model, pos_bank
 
 
-def setup_model(model, pos_bank, num_classes=None, eeg_positions=None):
+def setup_model(model, pos_bank, num_classes=None, electrode_coordinates=None, eeg_positions=None, channel_indices=None):
     """
-    Configure the REVE model with a classification head.
-    Note: This keeps the original REVE model architecture intact.
-    For classification, you may need to add a separate classification head layer.
+    Configure the REVE model with actual electrode coordinates.
     
+    REVE's 4D Positional Encoding:
+    ==============================
+    The REVE model uses a 4D positional encoding that combines:
+      1. Temporal dimension (timestep t)
+      2. Spatial 3D coordinates (x, y, z from actual electrode positions)
+    
+    This design allows REVE to handle ARBITRARY electrode configurations
+
     Args:
-        model: The REVE model
-        pos_bank: The position bank for electrode positions
+        model: REVE model
+        pos_bank: The position bank (not used when actual coordinates provided)
         num_classes: Number of output classes (if None, uses config value)
-        eeg_positions: List of channel position labels (if None, uses standard 10-20 system)
+        electrode_coordinates: np.ndarray of shape (total_electrodes, 3) with actual 3D coordinates
+                              These are typically all 96 electrodes from CapTrak system
+        eeg_positions: List of channel position labels (fallback if coordinates not provided)
+        channel_indices: List of indices to select specific channels from electrode_coordinates
+                        If None, uses all coordinates up to NUM_CHANNELS
         
     Returns:
-        tuple: (model, positions) - Model and position embeddings
+        tuple: (model, positions) - Model and position tensor of shape (num_used_channels, 3)
     """
     if num_classes is None:
         from config import NUM_CLASSES
         num_classes = NUM_CLASSES
     
+    # Use actual 3D coordinates if provided (RECOMMENDED for arbitrary configurations)
+    if electrode_coordinates is not None:
+        # Handle the case where we have all electrodes but only use a subset
+        if channel_indices is not None:
+            # Use only the specified channel indices
+            positions_array = electrode_coordinates[channel_indices]
+            print(f"Using selected {len(channel_indices)} electrode coordinates from {electrode_coordinates.shape[0]} total")
+        else:
+            # Use the first NUM_CHANNELS electrodes
+            from config import NUM_CHANNELS
+            positions_array = electrode_coordinates[:NUM_CHANNELS]
+            print(f"Using first {NUM_CHANNELS} electrode coordinates from {electrode_coordinates.shape[0]} total")
+        
+        # Convert to tensor and validate shape
+        positions = torch.from_numpy(positions_array).float()
+        
+        if positions.shape[1] != 3:
+            print(f"ERROR: Expected coordinates shape (num_channels, 3), got {positions.shape}")
+            return model, None
+        
+        print(f"\n=== REVE 4D Positional Encoding (Arbitrary Electrode Support) ===")
+        print(f"Position tensor shape: {positions.shape}")
+        print(f"Utilizing actual 3D coordinates with temporal information:")
+        print(f"  X (lateral):          [{positions[:, 0].min():.1f}, {positions[:, 0].max():.1f}] mm")
+        print(f"  Y (anterior-post):    [{positions[:, 1].min():.1f}, {positions[:, 1].max():.1f}] mm")
+        print(f"  Z (vertical):         [{positions[:, 2].min():.1f}, {positions[:, 2].max():.1f}] mm")
+        print(f"This flexible approach enables handling of arbitrary electrode montages.")
+        print()
+        
+        return model, positions
+    
+    # Fallback to position bank embeddings if no coordinates provided
     # Use standard positions if none provided
     if eeg_positions is None or len(eeg_positions) == 0 or all(isinstance(ch, str) and ch.startswith('CH') for ch in eeg_positions):
         # Use standard 10-20 system positions
@@ -73,14 +115,14 @@ def setup_model(model, pos_bank, num_classes=None, eeg_positions=None):
     
     # Get position embeddings from the position bank
     try:
-        print(f"Loading position embeddings for: {eeg_positions[:3]}... ({len(eeg_positions)} positions total)")
+        print(f"Loading position embeddings from pos_bank for: {eeg_positions[:3]}... ({len(eeg_positions)} positions total)")
         positions = pos_bank(eeg_positions)
-        print(f"Position embeddings loaded successfully. Shape: {positions.shape}")
+        print(f"Position embeddings loaded from pos_bank. Shape: {positions.shape}")
     except Exception as e:
         print(f"Warning: Could not load position embeddings from position bank ({e})")
         print(f"Generating random position embeddings for {NUM_CHANNELS} channels...")
         # Fallback: generate random position embeddings
-        positions = torch.randn(NUM_CHANNELS, 768)
+        positions = torch.randn(NUM_CHANNELS, 3)
     
     # Keep REVE model unchanged - it already has a final_layer
     # Users can adapt the output dimension as needed

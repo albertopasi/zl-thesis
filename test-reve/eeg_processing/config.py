@@ -16,9 +16,16 @@ SAMPLING_RATE = 500  # Hz
 NUM_EEG_CHANNELS = 96  # Keep only EEG channels (exclude AUX_1, AUX_2, Markers)
 EXCLUDE_CHANNELS = ['AUX_1', 'AUX_2', 'Markers']  # Non-EEG auxiliary channels to remove
 
+# Downsampling (optional: reduce computational load)
+# Set to None to disable downsampling, or set to target Hz (e.g., 250 Hz)
+DOWNSAMPLE_RATE = None  # Downsample to this frequency (Hz), or None to keep original
+# DOWNSAMPLE_RATE = 200  # Downsample from 500 Hz to 200 Hz
+# DOWNSAMPLE_RATE = 250  # Example: downsample from 500 Hz to 250 Hz
+
 # Epoch extraction - Time window around markers
 TMIN = -1.5  # Start of epoch relative to marker (seconds)
 TMAX = 1.5   # End of epoch relative to marker (seconds)
+# Note: EPOCH_SAMPLES will be calculated after downsampling is applied
 EPOCH_SAMPLES = int(SAMPLING_RATE * (TMAX - TMIN))
 
 # Preprocessing with MNE
@@ -26,7 +33,7 @@ NORMALIZE_DATA = True
 Z_SCORE_NORMALIZE = True  # Normalize by channel statistics per epoch
 APPLY_BANDPASS_FILTER = True
 BANDPASS_LOW = 0.5
-BANDPASS_HIGH = 100.0
+BANDPASS_HIGH = 99.5
 
 # Markers to classify - Target: Workload events
 # Keep all markers containing 'workload' (regardless of task/no-task, sparkles, count, etc.)

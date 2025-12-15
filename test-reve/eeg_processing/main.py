@@ -51,12 +51,18 @@ def process_subject(subject_id, session_id, extract_features=True, save_data=Tru
     except FileNotFoundError as e:
         print(f"ERROR: {e}")
         return results
+    except Exception as e:
+        print(f"ERROR loading XDF: {e}")
+        import traceback
+        traceback.print_exc()
+        return results
     
     # Validate loaded data
     if eeg_data.shape[0] == 0 or eeg_data.shape[1] == 0:
         print(f"ERROR: No valid EEG data loaded!")
         print(f"  EEG shape: {eeg_data.shape}")
         print(f"  Expected: (samples, channels)")
+        print(f"  This file may be corrupted or have a different stream structure than expected.")
         return results
     
     if len(markers) == 0:
@@ -184,6 +190,7 @@ def _save_results(results):
 
 if __name__ == "__main__":
     # Process subjects
+    # XDF loader now intelligently finds streams regardless of order
     subjects = ['sub-PD089', 'sub-PD094']
     
     all_results = process_multiple_subjects(

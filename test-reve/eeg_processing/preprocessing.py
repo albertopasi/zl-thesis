@@ -8,7 +8,8 @@ from config import (
     SAMPLING_RATE, TMIN, TMAX,
     NORMALIZE_DATA, Z_SCORE_NORMALIZE,
     APPLY_BANDPASS_FILTER, BANDPASS_LOW, BANDPASS_HIGH,
-    EXCLUDE_CHANNELS, SKIP_MARKERS, TARGET_MARKER_PREFIX
+    EXCLUDE_CHANNELS, SKIP_MARKERS, TARGET_MARKER_PREFIX,
+    DOWNSAMPLE_RATE
 )
 
 
@@ -285,6 +286,13 @@ class EEGPreprocessor:
         # Optional: Apply common average reference
         print("Applying common average reference...")
         self.raw.set_eeg_reference('average', verbose=False)
+        
+        # Optional: Downsample
+        if DOWNSAMPLE_RATE is not None and DOWNSAMPLE_RATE < self.sampling_rate:
+            print(f"Downsampling from {self.sampling_rate} Hz to {DOWNSAMPLE_RATE} Hz...")
+            self.raw.resample(DOWNSAMPLE_RATE, verbose=False)
+            self.sampling_rate = DOWNSAMPLE_RATE
+            print(f"  New sampling rate: {self.sampling_rate} Hz")
         
         return self.raw
     

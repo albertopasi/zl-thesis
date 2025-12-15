@@ -1,7 +1,7 @@
 """
 REVE-based feature extraction from EEG epochs.
-Uses pre-mapped electrode positions from electrode_mapping_to_standard.json
-to leverage REVE's pre-trained position embeddings consistently across subjects.
+Uses actual measured 3D electrode coordinates (no position embedding lookup).
+REVE can handle arbitrary electrode configurations using the actual 3D coordinates.
 """
 
 import torch
@@ -19,7 +19,7 @@ from reve_model import (
 
 
 class REVEFeatureExtractor:
-    """Extract features from EEG epochs using REVE model with mapped position embeddings."""
+    """Extract features from EEG epochs using REVE model with actual 3D electrode coordinates."""
     
     def __init__(self, device=None, channel_labels=None):
         """
@@ -34,72 +34,42 @@ class REVEFeatureExtractor:
         self.pos_bank = None
         self.positions = None
         self.channel_labels = channel_labels or [str(i+1) for i in range(96)]
-        self.electrode_mapping = None
-        self.reve_positions_dict = None
+        self.electrode_coordinates = None  # Actual 3D coordinates from XDF
         
-    def _load_electrode_mapping(self):
-        """Load the pre-computed electrode-to-REVE position mapping."""
-        mapping_path = Path(__file__).parent / "electrodes_pos" / "electrode_mapping_to_standard.json"
+    def _load_electrode_coordinates(self):
+        """Load actual 3D electrode coordinates from the XDF extraction."""
+        coords_path = Path(__file__).parent / "electrodes_pos" / "electrode_positions.json"
         
-        if not mapping_path.exists():
-            print(f"WARNING: Mapping file not found at {mapping_path}")
-            print("Run python inspect_electrodes/map_to_standard_positions.py first!")
+        if not coords_path.exists():
+            print(f"ERROR: Electrode coordinates not found at {coords_path}")
+            print("Run: python inspect_electrodes/generate_electrode_positions.py first!")
             return False
         
-        with open(mapping_path, 'r') as f:
-            self.electrode_mapping = json.load(f)
+        with open(coords_path, 'r') as f:
+            positions_dict = json.load(f)
         
-        print(f"[OK] Loaded electrode mapping: {len(self.electrode_mapping)} electrodes")
-        return True
-    
-    def _load_reve_positions(self):
-        """Load all REVE position embeddings from pre-computed file."""
-        positions_path = Path(__file__).parent / "electrodes_pos" / "reve_all_positions.json"
+        # Convert to numpy array: shape (96, 3) with x, y, z for each electrode
+        self.electrode_coordinates = np.zeros((96, 3))
         
-        if not positions_path.exists():
-            print(f"WARNING: REVE positions file not found at {positions_path}")
-            return False
-        
-        with open(positions_path, 'r') as f:
-            self.reve_positions_dict = json.load(f)
-        
-        print(f"[OK] Loaded REVE positions: {len(self.reve_positions_dict)} total positions available")
-        return True
-    
-    def _get_reve_position_names(self):
-        """
-        Get the REVE position names for all 96 electrodes in order.
-        Uses the pre-computed electrode-to-REVE position mapping.
-        
-        Returns:
-            list: REVE position names (one for each electrode 1-96)
-        """
-        if self.electrode_mapping is None:
-            if not self._load_electrode_mapping():
-                return None
-        
-        # Build position name list for our 96 channels in order
-        # Order: electrode 1, 2, 3, ..., 96
-        position_names = []
-        
-        for electrode_num in range(1, 97):  # 1-indexed like the mapping
-            electrode_key = str(electrode_num)
-            
-            if electrode_key in self.electrode_mapping:
-                mapped_position_name = self.electrode_mapping[electrode_key]['standard_position']
-                position_names.append(mapped_position_name)
+        for electrode_num in range(1, 97):
+            key = str(electrode_num)
+            if key in positions_dict:
+                coord = positions_dict[key]
+                self.electrode_coordinates[electrode_num - 1] = [coord['x'], coord['y'], coord['z']]
             else:
-                print(f"WARNING: Electrode {electrode_num} not in mapping, using default")
-                position_names.append(f"CH{electrode_num}")
+                print(f"WARNING: Electrode {electrode_num} not found in coordinates")
         
-        print(f"[OK] Created position name list: {len(position_names)} positions")
-        print(f"  Sample: {position_names[:5]} ... {position_names[-3:]}")
+        print(f"[OK] Loaded 3D electrode coordinates: shape {self.electrode_coordinates.shape}")
+        print(f"  Coordinate ranges:")
+        print(f"    X: [{self.electrode_coordinates[:, 0].min():.2f}, {self.electrode_coordinates[:, 0].max():.2f}] mm")
+        print(f"    Y: [{self.electrode_coordinates[:, 1].min():.2f}, {self.electrode_coordinates[:, 1].max():.2f}] mm")
+        print(f"    Z: [{self.electrode_coordinates[:, 2].min():.2f}, {self.electrode_coordinates[:, 2].max():.2f}] mm")
         
-        return position_names
+        return True
         
     def load_model(self, num_classes=None):
         """
-        Load REVE model with mapped position embeddings.
+        Load REVE model and prepare to use actual 3D electrode coordinates.
         
         Args:
             num_classes: Number of output classes (if None, uses config value)
@@ -107,26 +77,26 @@ class REVEFeatureExtractor:
         print("Loading REVE model...")
         self.model, self.pos_bank = load_reve_model()
         
-        print("\nSetting up model with mapped position embeddings...")
-        print("Using pre-computed electrode-to-REVE position mapping...")
+        print("\nSetting up model with actual 3D electrode coordinates...")
+        print("REVE will handle arbitrary electrode configurations using the measured 3D coordinates...")
         
-        # Get REVE position names from our mapping
-        position_names = self._get_reve_position_names()
+        # Load the actual 3D coordinates from XDF
+        if not self._load_electrode_coordinates():
+            print("ERROR: Could not load electrode coordinates!")
+            return False
         
-        if position_names is not None:
-            self.model, self.positions = setup_model(
-                self.model, 
-                self.pos_bank, 
-                num_classes=num_classes,
-                eeg_positions=position_names  # Pass position names, not tensors
-            )
-            print("[OK] Model setup complete with mapped positions")
-        else:
-            print("WARNING: Could not load position mapping, continuing without positions")
+        self.model, self.positions = setup_model(
+            self.model, 
+            self.pos_bank, 
+            num_classes=num_classes,
+            electrode_coordinates=self.electrode_coordinates  # Pass actual 3D coords
+        )
+        print("[OK] Model setup complete with 3D electrode coordinates")
         
         self.model = self.model.to(self.device)
         self.model.eval()
         print("REVE model loaded successfully")
+        return True
     
     def freeze_backbone(self):
         """Freeze REVE backbone for feature extraction only."""
@@ -134,7 +104,20 @@ class REVEFeatureExtractor:
     
     def extract_features(self, epochs, batch_size=8, return_logits=False):
         """
-        Extract features from EEG epochs using REVE with mapped position embeddings.
+        Extract features from EEG epochs using REVE with actual 3D electrode coordinates.
+        
+        REVE's approach:
+        ================
+        The REVE model's forward pass requires both:
+        1. EEG signals: (batch_size, num_channels, sequence_length)
+        2. Position coordinates: (num_channels, 3) - actual 3D electrode locations
+        
+        The model's 4D positional encoding combines:
+        - Spatial: 3D coordinates (x, y, z) from electrode_positions.json
+        - Temporal: timestep information (handled internally)
+        
+        This allows the model to handle arbitrary electrode montages without
+        learned position embeddings.
         
         Args:
             epochs: np.ndarray of shape (num_epochs, num_channels, epoch_samples)
@@ -146,7 +129,8 @@ class REVEFeatureExtractor:
             np.ndarray: Features of shape (num_epochs, feature_dim)
         """
         if self.model is None:
-            self.load_model()
+            if not self.load_model():
+                return None
         
         # Convert to tensor if needed
         if isinstance(epochs, np.ndarray):
@@ -155,7 +139,7 @@ class REVEFeatureExtractor:
             epochs_tensor = epochs.float()
         
         num_epochs = epochs_tensor.shape[0]
-        print(f"\nExtracting features from {num_epochs} epochs with mapped positions...")
+        print(f"\nExtracting features from {num_epochs} epochs with 3D electrode coordinates...")
         
         all_features = []
         
@@ -164,13 +148,18 @@ class REVEFeatureExtractor:
                 batch_end = min(i + batch_size, num_epochs)
                 batch = epochs_tensor[i:batch_end].to(self.device)
                 
-                # Prepare positions for batch
+                # CRITICAL: Pass positions (3D coordinates) to REVE model
                 if self.positions is not None:
-                    # positions shape: (num_channels, embedding_dim)
-                    # After repeat: (batch_size, num_channels, embedding_dim)
-                    pos = self.positions.repeat(batch.shape[0], 1, 1).to(self.device)
+                    # self.positions shape: (num_channels, 3) - the actual 3D coordinates
+                    # REVE expects: (batch_size, num_channels, 3)
+                    # The model will add temporal dimension internally
                     
-                    # REVE model always requires positions argument
+                    current_batch_size = batch.shape[0]
+                    pos = self.positions.unsqueeze(0).expand(current_batch_size, -1, -1).to(self.device)
+                    # pos shape after expand: (batch_size, num_channels, 3)
+                    
+                    # REVE forward pass: model(eeg_signals, positions)
+                    # The model uses 4D positional encoding with both spatial and temporal info
                     output = self.model(batch, pos)
                 else:
                     print("ERROR: Positions not loaded!")
