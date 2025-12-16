@@ -49,14 +49,14 @@ feature_extraction.py::extract_features()
 ### Preprocessing Pipeline
 1. **Bandpass filter**: 0.5-99.5 Hz (anti-aliasing included)
 2. **Common Average Reference**: CAR across all 96 channels
-3. **Downsampling** (optional): Resample to target rate (e.g., 200 Hz)
+3. **Downsampling** (optional): Resample to target rate (e.g., 250 Hz)
 4. **Epoch extraction**: [-1.5, +1.5] seconds around markers (3 seconds total)
 5. **Normalization**: Per-channel z-score normalization per epoch
 
 ### Configurable Downsampling
 Enable downsampling in `config.py`:
 ```python
-DOWNSAMPLE_RATE = 200  # Downsample from 500 Hz to 250 Hz
+DOWNSAMPLE_RATE = 250  # Downsample from 500 Hz to 250 Hz
 # DOWNSAMPLE_RATE = None  # Disable downsampling
 ```
 
@@ -69,14 +69,26 @@ eeg_processing/
 ├── PIPELINE.md                           Pipeline architecture
 ├── FILTERING.md                          Filter specifications
 │
-├── config.py                             Configuration parameters
-├── main.py                               Main pipeline orchestrator
+├── config.py                             Configuration parameters (data, training, evaluation)
+├── main.py                               Main pipeline orchestrator (preprocessing)
 ├── test_pipeline.py                      Quick test on single subject
 │
 ├── xdf_loader.py                         Load XDF files + extract electrode positions
 ├── preprocessing.py                      MNE-based filtering, downsampling, epoching
 ├── feature_extraction.py                 Load coordinates, extract REVE features
 ├── reve_model.py                         Setup REVE with 3D coordinates
+│
+├── train_comprehensive.py                ⭐ Comprehensive evaluation with 5 scenarios
+├── analyze_results.py                    ⭐ Detailed results analysis & summary statistics
+│
+├── output/                               Generated features & training results
+│   ├── sub-PD089_ses-S001_epochs.npy     Preprocessed epochs
+│   ├── sub-PD089_ses-S001_labels.npy     Epoch labels
+│   ├── sub-PD089_ses-S001_features.npy   REVE features (793, 393216)
+│   ├── sub-PD094_ses-S001_epochs.npy     
+│   ├── sub-PD094_ses-S001_labels.npy     
+│   ├── sub-PD094_ses-S001_features.npy   REVE features (797, 393216)
+│   └── comprehensive_results.json        ⭐ All evaluation metrics (5 scenarios × 3 seeds)
 │
 ├── electrodes_pos/
 │   ├── electrode_positions.json          96 CapTrak electrodes (x, y, z in mm)
@@ -95,16 +107,7 @@ eeg_processing/
 ### Step-by-Step Data Flow
 
 #### 1. **Load Coordinates** (`feature_extraction.py::_load_electrode_coordinates()`)
-```python
-# From: electrode_positions.json
-# Shape: (96, 3) - each electrode's (x, y, z) in mm
-self.electrode_coordinates = np.array([
-    [-86.20, 2.55, 28.03],    # electrode 1
-    [-79.68, 44.84, 54.13],   # electrode 2
-    ...
-    [81.53, 110.59, 149.08]   # electrode 96
-])
-```
+
 
 #### 2. **Pass to Model Setup** (`feature_extraction.py::load_model()`)
 ```python
@@ -144,28 +147,8 @@ with torch.no_grad():
         
         # REVE forward pass with 4D positional encoding
         output = self.model(batch_eeg, pos)  # ← Both EEG and coordinates
-        
-        # Inside REVE:
-        # 1. Adds Gaussian noise to pos for augmentation
-        # 2. Extends to 4D: (B, 96, p, 4) where p=patches, 4th dim=time
-        # 3. Computes Fourier basis for all (x,y,z,t)
-        # 4. Applies learned linear transformation
-        # 5. Combines: Penc = LayerNorm(Fourier + Learned)
-        # 6. Uses for 4D positional encoding in transformer
 ```
 
-### Key Points About Coordinates
-
-| Aspect | Details |
-|--------|---------|
-| **Shape** | (96, 3) → (batch, 96, 3) for forward pass |
-| **Units** | Millimeters (mm), from CapTrak |
-| **Origin** | Head center |
-| **X-axis** | Lateral (left-right), negative=left |
-| **Y-axis** | Anterior-posterior (front-back), negative=back |
-| **Z-axis** | Vertical (up-down), negative=down |
-| **Range** | X∈[-86,82], Y∈[-113,111], Z∈[-36,149] mm |
-| **Processing** | Direct to model; no normalization needed |
 
 ## Usage
 
@@ -180,36 +163,6 @@ python main.py
 - Uses actual 3D electrode coordinates
 - Saves epochs, labels, and REVE features
 
-### Programmatic Usage
-
-```python
-from feature_extraction import REVEFeatureExtractor
-from preprocessing import EEGPreprocessor
-from xdf_loader import XDFLoader
-
-# 1. Load data
-loader = XDFLoader('sub-PD089', 'ses-S001')
-eeg_data, timestamps, sfreq = loader.get_eeg_data()
-markers, marker_ts = loader.get_marker_data()
-channel_labels = loader.get_channel_labels()
-
-# 2. Preprocess
-preprocessor = EEGPreprocessor(
-    eeg_data, timestamps, markers, marker_ts,
-    channel_labels=channel_labels, sampling_rate=sfreq
-)
-epochs, labels, metadata = preprocessor.get_processed_epochs(
-    preprocess=True,   # Filter + CAR
-    normalize=True,    # Z-score norm
-    tmin=-1.5, tmax=1.5
-)
-
-# 3. Extract REVE features with 3D coordinates
-extractor = REVEFeatureExtractor(channel_labels=channel_labels)
-extractor.load_model(num_classes=4)
-features = extractor.extract_features(epochs, batch_size=4)
-# features shape: (n_epochs, feature_dim)
-```
 
 ### Configuration Options
 
@@ -291,48 +244,9 @@ When `save_data=True`, 4 files are created per subject in `output/`:
 
 **Note:** `seq_len` = 1501 (500 Hz) or 750-751 (250 Hz if downsampled)
 
-## Technical Details
-
-### REVE 4D Positional Encoding
-
-REVE extends standard sinusoidal positional encoding to 4 dimensions:
-
-```
-Input: pos ∈ ℝ^(B×C×3)  [batch, channels, spatial coords]
-
-Step 1: Add temporal dimension
-    pos_extended = [x, y, z, t] where t ∈ {1, 2, ..., p}
-    Result: (B, C, p, 4)
-
-Step 2: Fourier projection
-    For each (x, y, z, t):
-        Project to n_freq^4 frequencies (Cartesian product)
-        Apply sin/cos transformations
-    Result: (B, C, p, 2·n_freq^4)
-
-Step 3: Learned refinement
-    Linear layer + GELU + LayerNorm
-    Combines Fourier basis with task-specific adaptation
-    Result: (B, C, p, d_model)
-
-Step 4: Position encoding
-    Added to patch embeddings before transformer
-```
-
-### Advantages Over Position Embeddings
-
-| Aspect | Position Embeddings | REVE 4D Encoding |
-|--------|-------|------|
-| **Learned positions** | Yes (lookup table) | No (analytic function) |
-| **Layout generalization** | No | Yes ✓ |
-| **Variable lengths** | Requires truncation | Handles naturally ✓ |
-| **New electrode sets** | Requires retraining | Works directly ✓ |
-| **Computation** | O(1) lookup | O(n_freq^4) sinusoids |
-| **Your use case** | Would need REVE retraining | Works as-is ✓ |
-
 ### Coordinate System
 
-Your CapTrak positions are in a standard head-centered coordinate system:
+The CapTrak positions are in a standard head-centered coordinate system:
 
 ```
       Front (positive Y)
@@ -348,77 +262,6 @@ Your CapTrak positions are in a standard head-centered coordinate system:
 - **Y**: Back (-) to Front (+), ~110mm range each direction  
 - **Z**: Bottom (-) to Top (+), ~190mm total height
 
-## Troubleshooting
-
-### "Positions not loaded!" Error
-
-**Cause:** `electrode_positions.json` not found or malformed
-
-**Solution:**
-```bash
-cd inspect_electrodes
-python generate_electrode_positions.py  # Regenerate from XDF CapTrak metadata
-```
-
-### Feature extraction hangs
-
-**Cause:** GPU out of memory or large batch size on CPU
-
-**Solution:** Edit `feature_extraction.py::extract_features()`:
-```python
-features = extractor.extract_features(epochs, batch_size=2)  # Reduce from 4 to 2
-```
-
-### Shape mismatch errors
-
-**Cause:** Epoch length changed but code expects old shape
-
-**Solution:** Check `config.py`:
-- If you changed `TMIN`, `TMAX`, or enabled downsampling, epoch shapes change
-- Verify: `EPOCH_SAMPLES = int(SAMPLING_RATE * (TMAX - TMIN))`
-
-### Model loading warns about `flash_attn`
-
-**This is fine.** REVE will work without flash attention (just slightly slower):
-```
-flash_attn not found, install it with `pip install flash_attn` if you want to use it
-```
-
-If you want to silence this, install flash-attn (requires CUDA):
-```bash
-pip install flash-attn
-```
-
-## Advanced: Custom Electrode Sets
-
-If you want to use a subset of electrodes:
-
-```python
-# Load only electrodes 1-32
-import numpy as np
-from feature_extraction import REVEFeatureExtractor
-
-extractor = REVEFeatureExtractor()
-extractor.load_model()
-
-# Custom: use only first 32 electrodes
-selected_indices = list(range(32))
-selected_coords = extractor.electrode_coordinates[selected_indices]
-selected_epochs = epochs[:, selected_indices, :]  # (n_epochs, 32, seq_len)
-
-# Modify positions to match
-from reve_model import setup_model
-model, pos = setup_model(
-    extractor.model,
-    extractor.pos_bank,
-    electrode_coordinates=extractor.electrode_coordinates,
-    channel_indices=selected_indices
-)
-
-# Extract features with subset
-extractor.positions = pos
-features_subset = extractor.extract_features(selected_epochs)
-```
 
 ## References
 
@@ -432,18 +275,6 @@ features_subset = extractor.extract_features(selected_epochs)
 | `{subject}_{session}_features.npy` | (n_epochs, 393216) | REVE features | Deep learning, classification |
 | `{subject}_{session}_label_features.npy` | dict | Features by label | Per-class analysis |
 
-### Example Output for 792 epochs:
-```
-epochs:         (792, 96, 1024) - Raw preprocessed EEG
-labels:         (792,) with values ['medium', 'original', 'high', 'low']
-features:       (792, 393216) - REVE transformer output (flattened)
-label_features: {
-    'medium':   (197, 393216),    # 197 medium workload epochs
-    'original': (207, 393216),    # 207 original workload epochs
-    'high':     (191, 393216),    # 191 high workload epochs
-    'low':      (197, 393216)     # 197 low workload epochs
-}
-```
 
 ## Feature Extraction Pipeline Details
 
@@ -455,219 +286,79 @@ label_features: {
 4. **Extract features** → Flattens REVE transformer output to 393,216-dimensional feature vectors
 5. **Organize by label** → Groups features by workload class for convenient analysis
 
-### Why Single-Pass Processing?
+## Training & Classification
 
-The pipeline was optimized to process each epoch exactly **once** through REVE:
+### Comprehensive Evaluation (`train_comprehensive.py`)
 
-```
-Before (Inefficient):
-  extract_features_for_labels(epochs, labels)
-    ↓ internally calls extract_features(epochs)  ← REVE processes 792 epochs
-    ↓ then organizes by label
-  Cost: 792 × REVE forward passes × 2 = 1584 passes (wasted)
-
-After (Efficient):
-  features = extract_features(epochs)           ← REVE processes 792 epochs once
-  label_features = extract_features_for_labels(features, labels)  ← Just indexing
-  Cost: 792 × REVE forward passes × 1 = 792 passes ✓
-```
-
-**Result**: ~50% faster feature extraction (~10-15 min instead of ~20-30 min per subject)
-
-## Testing & Validation
-
-### Run Full Integration Tests
+Trains a neural network classifier to predict workload levels from REVE features across **5 different scenarios**:
 
 ```bash
-# Complete integration test with dummy data
-python tests/test_reve_integration.py
-
-# Comprehensive usage example
-python example_reve_usage.py
+python train_comprehensive.py
 ```
 
-### Quick Test with 8 Epochs
+#### Architecture
 
-```bash
-# Fast validation (no large dataset needed)
-python test_8_epochs.py
-```
+- **Input**: 393,216-dimensional REVE features
+- **Hidden layer**: 256 neurons with ReLU activation
+- **Output**: 4 workload classes (original, low, medium, high)
+- **Regularization**: Dropout (20%)
+- **Training**: 20 epochs, Adam optimizer
 
-### Verify Mapping Quality
+#### 5 Evaluation Scenarios
 
-```bash
-# Check electrode mapping quality and coverage
-python inspect_electrodes/verify_electrode_mapping.py
+| Scenario | Train Data | Test Data | Purpose |
+|----------|-----------|-----------|---------|
+| **Combined Split** | Both subjects mixed (80%) | Both subjects mixed (20%) | Overall generalization |
+| **Subject PD089 Only** | PD089 (80%) | PD089 (20%) | Within-subject performance |
+| **Subject PD094 Only** | PD094 (80%) | PD094 (20%) | Within-subject performance |
+| **Cross 089→094** | PD089 (100%) | PD094 (100%) | Cross-subject generalization |
+| **Cross 094→089** | PD094 (100%) | PD089 (100%) | Cross-subject generalization |
 
-# Inspect which electrodes map to which REVE positions
-```
+#### Configuration
 
-### Debug XDF Files
-
-```bash
-# Check all streams in an XDF file
-python inspect_electrodes/check_xdf_channels.py
-```
-
-### Regenerate Mapping Files
-
-If mapping files are missing or need updating:
-
-```bash
-# Extract all 543 REVE position coordinates from pre-trained model
-python inspect_electrodes/extract_reve_positions.py
-# Creates: electrodes_pos/reve_all_positions.json
-
-# Create mapping from your 96 electrodes to REVE positions
-python inspect_electrodes/map_to_standard_positions.py
-# Creates: electrodes_pos/electrode_mapping_to_standard.json
-```
-
-## Technical Details
-
-### Position Mapping Algorithm
-
-The system uses **Euclidean distance in 3D space** to find the best match:
-
+Set in `config.py`:
 ```python
-# For each of your 96 measured electrode positions:
-for measured_pos in your_96_electrodes:
-    # Calculate distance to all 543 REVE positions
-    distances = [
-        sqrt((measured_pos.x - reve_pos.x)² + 
-             (measured_pos.y - reve_pos.y)² + 
-             (measured_pos.z - reve_pos.z)²)
-        for reve_pos in reve_543_positions
-    ]
-    # Find the closest one
-    closest_reve_pos = argmin(distances)
-    # Store permanent mapping
-    mapping[measured_electrode] = closest_reve_pos
+EVAL_LEARNING_RATES = [0.001, 0.002, 0.005]        # Learning rates to test
+EVAL_SEEDS = [42, 123, 456]          # Random seeds for reproducibility
+EVAL_NUM_EPOCHS = 20                 # Epochs per training run
 ```
 
-### Feature Extraction Flow
+**Total runs**: 5 scenarios × 3 LR × 3 seeds = **45 models trained**
 
-```
-Raw EEG epochs (96 channels × 1024 samples each)
-              ↓
-    Load 96 mapped REVE position names
-              ↓
-    Retrieve 3D coordinates for each position
-              ↓
-    Get position embeddings from REVE
-              ↓
-    Feed to REVE transformer: model(eeg_data, position_embeddings)
-              ↓
-    Get transformer output (hierarchical representations)
-              ↓
-    Flatten to feature vector
-              ↓
-Features: (n_epochs, 393216)
-              ↓
-    Group by workload label
-              ↓
-label_features: {label: (n_epochs_for_label, 393216)}
-```
+#### Results Output
 
-## Important Guarantees
+Saves `output/comprehensive_results.json` with:
+- Accuracy, balanced accuracy, Cohen's kappa, F1 score
+- Confusion matrices and per-class metrics
+- All results organized by scenario and hyperparameter config
 
-✓ **Real data only**
-  - Uses actual CapTrak electrode measurements
-  - Uses REVE's official pre-trained position embeddings
-  - No synthetic or estimated values
+### Results Analysis (`analyze_results.py`)
 
-✓ **Consistent across subjects**
-  - Same 96 positions for all subjects
-  - No subject-specific adjustments
-  - Identical embeddings for same positions
-
-✓ **Deterministic and reproducible**
-  - Mapping is permanent and unchanging
-  - Same positions always produce same features
-  - Results are fully reproducible
-
-✓ **Well-tested**
-  - Integration tests pass
-  - Usage examples work
-  - Pipeline validated with real data
-  - All 792 epochs extract successfully
-
-## Troubleshooting
-
-### Missing electrode position files?
+Prints detailed summary statistics from training results:
 
 ```bash
-# Regenerate mapping files in electrodes_pos/ folder
-python inspect_electrodes/extract_reve_positions.py
-python inspect_electrodes/map_to_standard_positions.py
+python analyze_results.py
 ```
 
-### Feature extraction failing?
+**Output includes:**
+- Per-scenario mean ± std accuracy
+- Scenario ranking by performance
+- Comparison: within-subject vs cross-subject
+- Seed stability analysis
+- Improvement over random baseline (25%)
 
-Check:
-1. Position files exist in `eeg_processing/electrodes_pos/`
-2. EEG data shape is (n_epochs, 96, n_samples)
-3. REVE is properly installed
-4. Sufficient memory (use smaller batch_size if needed)
+#### Key Findings
 
-### XDF loading issues?
+- **Within-subject (best)**: ~37-39% accuracy (within same participant)
+- **Cross-subject (worst)**: ~24-27% accuracy (train on one, test on other)
+- **Combined**: ~35% accuracy (mixed subjects)
+- **Random baseline**: 25% (4 equal classes)
 
-Check which streams are in the file:
-```bash
-python inspect_electrodes/check_xdf_channels.py
-```
+**Interpretation**: REVE features capture **subject-specific patterns** better than generalizable workload signals. Cross-subject failure suggests individual differences dominate over task effects.
 
-This shows all streams and identifies which will be used.
+### Next Steps for Improvement
 
-### Mapping quality concerns?
-
-Verify mapping statistics:
-```bash
-python inspect_electrodes/verify_electrode_mapping.py
-```
-
-Shows mean/max/min distances and coverage statistics.
-
-## Performance
-
-Typical per-subject processing times:
-- Loading XDF: ~5 seconds
-- Preprocessing (filtering, normalization): ~2 seconds
-- Feature extraction (792 epochs): ~10-15 minutes (CPU)
-  - With GPU: ~3-5 minutes
-- Saving output: ~3 seconds
-
-**Total per subject**: ~10-20 minutes (CPU) or ~3-8 minutes (GPU)
-
-For 2 subjects: ~20-40 minutes total
-
-## Next Steps
-
-1. **Process all subjects**: Run `main.py` on entire dataset
-2. **Extract features**: Get 393,216-dimensional feature vectors
-3. **Analyze features**: Use for classification, clustering, visualization
-4. **Fine-tune models**: Train models on extracted features for workload prediction
-
-## References
-
-- **REVE Model**: [brain-bzh/reve-base](https://huggingface.co/brain-bzh/reve-base)
-- **Position Embeddings**: [brain-bzh/reve-positions](https://huggingface.co/brain-bzh/reve-positions)
-- **MNE-Python**: https://mne.tools/
-- **XDF Format**: https://xdf.ncbi.nlm.nih.gov/
-- **PyXDF**: https://github.com/xdf-modules/xdf-python
-
-## Dependencies
-
-- pyxdf
-- numpy
-- mne
-- torch
-- transformers
-- scipy
-- scikit-learn
-
----
-
-**Status**: ✅ READY FOR PRODUCTION
-
-Your pipeline now features automatic electrode position mapping, efficient single-pass REVE feature extraction, and robust multi-subject processing.
+1. **Fine-tune REVE backbone**: Currently frozen; unfreezing layers may unlock subject-generalizable features
+2. **Add classical features**: PSD, spectral entropy, band power ratios may complement REVE
+3. **Subject-specific adaptation**: Shared backbone + per-subject layers for balanced generalization
+4. **Expand dataset**: More subjects (5-10+) crucial for learning portable workload patterns

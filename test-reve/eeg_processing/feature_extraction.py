@@ -148,7 +148,7 @@ class REVEFeatureExtractor:
                 batch_end = min(i + batch_size, num_epochs)
                 batch = epochs_tensor[i:batch_end].to(self.device)
                 
-                # CRITICAL: Pass positions (3D coordinates) to REVE model
+                # Pass positions (3D coordinates) to REVE model
                 if self.positions is not None:
                     # self.positions shape: (num_channels, 3) - the actual 3D coordinates
                     # REVE expects: (batch_size, num_channels, 3)

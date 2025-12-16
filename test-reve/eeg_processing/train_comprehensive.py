@@ -50,7 +50,7 @@ def load_all_data():
 
 def prepare_data(features, labels, test_size=0.2, random_state=42):
     """
-    Split data into train/test with stratification (no validation set).
+    Split data into train/test with stratification (no validation set for now).
     
     Returns:
         dict with keys: X_train, X_test, y_train, y_test, label_encoder
@@ -83,7 +83,7 @@ def prepare_data(features, labels, test_size=0.2, random_state=42):
 # ============================================================================
 
 class WorkloadClassifier(nn.Module):
-    """Simplified neural network classifier for workload prediction."""
+    """Simple neural network classifier for workload prediction."""
     
     def __init__(self, input_dim=393216, hidden_dim=256, num_classes=4, dropout=0.2):
         super().__init__()
@@ -326,7 +326,7 @@ def main():
     """Run all scenarios and save results."""
     print("=" * 70)
     print("COMPREHENSIVE WORKLOAD CLASSIFIER EVALUATION")
-    print(f"Simplified architecture | Epochs: {EVAL_NUM_EPOCHS} | LRs: {EVAL_LEARNING_RATES} | Seeds: {EVAL_SEEDS}")
+    print(f"Epochs: {EVAL_NUM_EPOCHS} | LRs: {EVAL_LEARNING_RATES} | Seeds: {EVAL_SEEDS}")
     print("=" * 70)
     
     # Load data

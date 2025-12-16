@@ -128,17 +128,3 @@ SKIP_MARKERS = {
     'baseline'
 }
 ```
-
-## Verification
-
-Run the notebook to see filtering in action:
-```python
-from eeg_processing.main import process_subject
-
-results = process_subject('sub-PD089', 'ses-S001')
-# Console output shows:
-#   - Channels excluded and kept
-#   - Non-experimental markers skipped
-#   - Final epoch count and distribution
-```
-
