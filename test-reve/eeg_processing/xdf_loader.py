@@ -5,7 +5,7 @@ XDF file loading and stream extraction utilities.
 import os
 import pyxdf
 import numpy as np
-from config import DATA_ROOT, EEG_STREAM_INDEX, MARKER_STREAM_INDEX
+from config import DATA_ROOT, EEG_STREAM_PATTERN, MARKER_STREAM_PATTERN
 
 
 class XDFLoader:
@@ -54,7 +54,7 @@ class XDFLoader:
     def get_eeg_stream(self):
         """
         Extract EEG data stream.
-        Finds the stream named 'actiCHamp' (robust to different stream orders).
+        Finds the stream by pattern matching on stream name (robust to different stream orders).
         
         Returns:
             dict: EEG stream with 'time_series', 'time_stamps', 'info' keys
@@ -62,35 +62,23 @@ class XDFLoader:
         if self.streams is None:
             self.load()
         
-        # First try hardcoded index (original approach)
-        if len(self.streams) > EEG_STREAM_INDEX:
-            stream = self.streams[EEG_STREAM_INDEX]
-            stream_name = stream['info'].get('name', [''])[0]
-            ts = stream.get('time_series')
-            ts_shape = ts.shape if hasattr(ts, 'shape') else (len(ts) if ts else 0)
-            ts_len = ts_shape[0] if isinstance(ts_shape, tuple) else ts_shape
-            if 'actiCHamp' in stream_name and ts_len > 0:
-                return stream
-        
-        # If not found, search for 'actiCHamp' stream (robust to different orderings)
-        print(f"  Stream {EEG_STREAM_INDEX} doesn't have EEG data, searching for 'actiCHamp' stream...")
+        # Search for EEG stream by name pattern (not by fixed index)
         for i, stream in enumerate(self.streams):
             stream_name = stream['info'].get('name', [''])[0]
             ts = stream.get('time_series')
             ts_shape = ts.shape if hasattr(ts, 'shape') else (len(ts) if ts else 0)
             ts_len = ts_shape[0] if isinstance(ts_shape, tuple) else ts_shape
-            if 'actiCHamp' in stream_name and ts_len > 0:
-                print(f"  Found actiCHamp at stream index {i}")
+            if EEG_STREAM_PATTERN in stream_name and ts_len > 0:
+                print(f"  Found EEG stream '{stream_name}' at index {i}")
                 return stream
         
-        # Fallback: return whatever is at the original index
-        print(f"  WARNING: Could not find actiCHamp stream, using default index {EEG_STREAM_INDEX}")
-        return self.streams[EEG_STREAM_INDEX]
+        # Fallback: raise error if pattern not found
+        raise ValueError(f"Could not find EEG stream with pattern '{EEG_STREAM_PATTERN}' in any of {len(self.streams)} streams")
     
     def get_marker_stream(self):
         """
         Extract marker/event stream.
-        Finds the stream named 'ZLT-markers' (robust to different stream orders).
+        Finds the stream by pattern matching on stream name (robust to different stream orders).
         
         Returns:
             dict: Marker stream with 'time_series', 'time_stamps', 'info' keys
@@ -98,28 +86,17 @@ class XDFLoader:
         if self.streams is None:
             self.load()
         
-        # First try hardcoded index (original approach)
-        if len(self.streams) > MARKER_STREAM_INDEX:
-            stream = self.streams[MARKER_STREAM_INDEX]
-            stream_name = stream['info'].get('name', [''])[0]
-            ts = stream.get('time_series')
-            ts_len = len(ts) if isinstance(ts, list) else (ts.shape[0] if ts is not None else 0)
-            if 'ZLT-markers' in stream_name and ts_len > 0:
-                return stream
-        
-        # If not found, search for 'ZLT-markers' stream (robust to different orderings)
-        print(f"  Stream {MARKER_STREAM_INDEX} doesn't have markers, searching for 'ZLT-markers' stream...")
+        # Search for marker stream by name pattern (not by fixed index)
         for i, stream in enumerate(self.streams):
             stream_name = stream['info'].get('name', [''])[0]
             ts = stream.get('time_series')
             ts_len = len(ts) if isinstance(ts, list) else (ts.shape[0] if ts is not None else 0)
-            if 'ZLT-markers' in stream_name and ts_len > 0:
-                print(f"  Found ZLT-markers at stream index {i}")
+            if MARKER_STREAM_PATTERN in stream_name and ts_len > 0:
+                print(f"  Found marker stream '{stream_name}' at index {i}")
                 return stream
         
-        # Fallback: return whatever is at the original index
-        print(f"  WARNING: Could not find ZLT-markers stream, using default index {MARKER_STREAM_INDEX}")
-        return self.streams[MARKER_STREAM_INDEX]
+        # Fallback: raise error if pattern not found
+        raise ValueError(f"Could not find marker stream with pattern '{MARKER_STREAM_PATTERN}' in any of {len(self.streams)} streams")
     
     def get_eeg_data(self):
         """

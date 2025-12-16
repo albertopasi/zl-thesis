@@ -124,6 +124,42 @@ class EEGPreprocessor:
                 return True
         return False
     
+    def _analyze_epoch_overlaps(self, events, tmin, tmax):
+        """
+        Analyze how many epochs will have overlapping time windows.
+        This is informational to help understand why epochs are dropped.
+        
+        Args:
+            events: Array of event times (sample indices)
+            tmin: Start of epoch relative to marker (seconds)
+            tmax: End of epoch relative to marker (seconds)
+        """
+        if len(events) < 2:
+            return
+        
+        # Calculate epoch window size in samples
+        epoch_samples_before = int(abs(tmin) * self.sampling_rate)
+        epoch_samples_after = int(tmax * self.sampling_rate)
+        
+        # Count overlapping windows
+        overlaps = 0
+        for i in range(len(events) - 1):
+            curr_sample = events[i][0]
+            next_sample = events[i + 1][0]
+            
+            # Current epoch ends at: curr_sample + epoch_samples_after
+            # Next epoch starts at: next_sample - epoch_samples_before
+            
+            curr_end = curr_sample + epoch_samples_after
+            next_start = next_sample - epoch_samples_before
+            
+            if curr_end >= next_start:
+                overlaps += 1
+        
+        if overlaps > 0:
+            pct = (overlaps / (len(events) - 1)) * 100
+            print(f" {overlaps} consecutive events have overlapping epoch windows ({pct:.1f}%)")
+    
     def _create_events_array(self):
         """Create MNE events array from markers."""
         events = []
@@ -209,6 +245,10 @@ class EEGPreprocessor:
             return self.epochs, self.epoch_labels, []
         
         print(f"Found {len(events)} workload events (after removing duplicates)")
+        
+        # Analyze overlapping epochs (informational)
+        self._analyze_epoch_overlaps(events, tmin, tmax)
+        
         # print(f"Event types: {event_id}")
         
         # Create epochs using MNE
@@ -238,6 +278,15 @@ class EEGPreprocessor:
             print(f"  Actual epochs: {epochs_data.shape[0]}")
             print(f"  Using actual epoch count")
             labels = labels[:epochs_data.shape[0]]
+        
+        # Report how many epochs were dropped due to overlaps
+        n_dropped = len(events) - epochs_data.shape[0]
+        if n_dropped > 0:
+            print(f"\nEpochs dropped during extraction: {n_dropped}")
+            print(f"  Original events: {len(events)}")
+            print(f"  Extracted epochs: {epochs_data.shape[0]}")
+            print(f"  Reason: Overlapping epoch windows (events too close together)")
+            print(f"  Note: Epochs with overlapping time windows are merged/dropped by MNE")
         
         # Create metadata
         metadata = []
