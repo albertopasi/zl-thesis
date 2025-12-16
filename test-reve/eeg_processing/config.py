@@ -74,3 +74,8 @@ BATCH_SIZE = 32
 N_EPOCHS = 20
 LEARNING_RATE = 1e-3
 RANDOM_SEED = 42
+
+# Comprehensive evaluation hyperparameters
+EVAL_LEARNING_RATES = [0.001, 0.0005, 0.01]
+EVAL_SEEDS = [42, 123, 456]
+EVAL_NUM_EPOCHS = 20
