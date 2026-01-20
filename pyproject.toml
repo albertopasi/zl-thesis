@@ -17,6 +17,7 @@ dependencies = [
     "click",
     "tqdm",
     "einops>=0.8.1",
+    "peft>=0.18.1",
 ]
 
 [project.optional-dependencies]
