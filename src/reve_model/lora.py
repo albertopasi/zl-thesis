@@ -22,6 +22,7 @@ def get_lora_config(task_type: str = "FEATURE_EXTRACTION") -> LoraConfig:
     Returns:
         LoraConfig: Configuration using LORA_RANK, LORA_ALPHA, LORA_DROPOUT, LORA_BIAS
     """
+
     return LoraConfig(
         r=LORA_RANK,
         lora_alpha=LORA_ALPHA,
@@ -45,6 +46,7 @@ def apply_lora(model) -> PeftModel:
     Returns:
         PeftModel: Model with LoRA adapters
     """
+
     lora_config = get_lora_config()
     
     # Apply LoRA
@@ -58,6 +60,7 @@ def apply_lora(model) -> PeftModel:
 
 def _print_trainable_params(model) -> None:
     """Print model parameter statistics."""
+
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     all_params = sum(p.numel() for p in model.parameters())
     
@@ -84,6 +87,7 @@ def save_lora_adapter(
     Example:
         save_lora_adapter(lora_model, Path("checkpoints/adapter_weights"))
     """
+
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -109,12 +113,14 @@ def load_lora_adapter(
         model = load_reve_model()
         model = load_lora_adapter(model, Path("checkpoints/adapter_weights"))
     """
+
     lora_model = PeftModel.from_pretrained(model, adapter_path)
     return lora_model
 
 
 def freeze_base_model(model) -> None:
     """Freeze all base model parameters (only LoRA trainable)."""
+
     for param in model.base_model.parameters():
         param.requires_grad = False
     print("Base model parameters frozen (LoRA only trainable)")
@@ -122,6 +128,7 @@ def freeze_base_model(model) -> None:
 
 def unfreeze_base_model(model) -> None:
     """Unfreeze all base model parameters."""
+
     for param in model.base_model.parameters():
         param.requires_grad = True
     print("Base model parameters unfrozen")
@@ -142,6 +149,7 @@ def merge_adapters(model: PeftModel) -> torch.nn.Module:
         merged_model = merge_adapters(lora_model)
         # Use merged_model for inference without LoRA overhead
     """
+
     merged_model = model.merge_and_unload()
     print("LoRA adapters merged into base model")
     return merged_model
@@ -161,9 +169,10 @@ def get_optimizer_groups(model: PeftModel) -> List[dict]:
         List of parameter groups for torch.optim.AdamW
     
     Example:
-        >>> optimizer_groups = get_optimizer_groups(lora_model)
-        >>> optimizer = torch.optim.AdamW(optimizer_groups)
+        optimizer_groups = get_optimizer_groups(lora_model)
+        optimizer = torch.optim.AdamW(optimizer_groups)
     """
+    
     decay = set()
     no_decay = set()
     
