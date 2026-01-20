@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from torch.optim import Adam
 
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.decomposition import IncrementalPCA
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     accuracy_score, balanced_accuracy_score, cohen_kappa_score,
@@ -48,24 +49,43 @@ def load_all_data():
 # DATA PREPROCESSING
 # ============================================================================
 
-def prepare_data(features, labels, test_size=0.2, random_state=42):
+def prepare_data(features, labels, test_size=0.2, random_state=42, pca_components=512):
     """
-    Split data into train/test with stratification (no validation set for now).
+    Split data into train/test with stratification and PCA dimensionality reduction.
+    
+    Args:
+        features: Original features (196,608 dimensions)
+        labels: Binary labels (0 or 1)
+        test_size: Fraction for test set
+        random_state: Random seed
+        pca_components: Number of dimensions after PCA compression
     
     Returns:
-        dict with keys: X_train, X_test, y_train, y_test, label_encoder
+        dict with keys: X_train, X_test, y_train, y_test, label_encoder, scaler, pca
     """
     # Encode labels
     label_encoder = LabelEncoder()
     y_encoded = label_encoder.fit_transform(labels)
     
-    # Scale features
+    # Scale features first (important for PCA)
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(features)
     
+    # Apply PCA for dimensionality reduction
+    # Be aggressive: reduce to 10x number of samples for better regularization
+    # Thi helps model learn patterns instead of memorizing
+    n_samples = features.shape[0]
+    target_components = min(n_samples * 10, 100)  # Target 10:1 sample-to-feature ratio, max 100 dims
+    n_components = min(pca_components, target_components, n_samples - 1)
+    print(f"  Applying PCA: {features.shape[1]} → {n_components} dimensions...")
+    pca = IncrementalPCA(n_components=n_components, batch_size=16)
+    X_reduced = pca.fit_transform(X_scaled)
+    explained_var = np.sum(pca.explained_variance_ratio_)
+    print(f"    Explained variance: {explained_var:.1%} ({n_samples} samples, {n_components} dims = {n_samples/n_components:.1f}:1 ratio)")
+    
     # Split: train vs test
     X_train, X_test, y_train, y_test = train_test_split(
-        X_scaled, y_encoded, test_size=test_size, stratify=y_encoded, random_state=random_state
+        X_reduced, y_encoded, test_size=test_size, stratify=y_encoded, random_state=random_state
     )
     
     return {
@@ -74,7 +94,8 @@ def prepare_data(features, labels, test_size=0.2, random_state=42):
         "y_train": y_train,
         "y_test": y_test,
         "label_encoder": label_encoder,
-        "scaler": scaler
+        "scaler": scaler,
+        "pca": pca
     }
 
 
@@ -85,7 +106,7 @@ def prepare_data(features, labels, test_size=0.2, random_state=42):
 class WorkloadClassifier(nn.Module):
     """Simple neural network classifier for workload prediction (binary: task vs no-task)."""
     
-    def __init__(self, input_dim=393216, hidden_dim=256, num_classes=2, dropout=0.2):
+    def __init__(self, input_dim=512, hidden_dim=256, num_classes=2, dropout=0.3):
         super().__init__()
         self.network = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -139,7 +160,7 @@ def train_and_evaluate(X_train, X_test, y_train, y_test,
     train_loader, test_loader = create_dataloaders(X_train, X_test, y_train, y_test)
     
     # Setup training
-    optimizer = Adam(model.parameters(), lr=learning_rate)
+    optimizer = Adam(model.parameters(), lr=learning_rate, weight_decay=0.01)  # L2 regularization
     criterion = nn.CrossEntropyLoss()
     
     # Training loop

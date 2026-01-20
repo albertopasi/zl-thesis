@@ -1,4 +1,4 @@
-"""
+"""""
 Simple electrode position visualization using MNE.
 Uses actual channel labels from XDF file.
 """

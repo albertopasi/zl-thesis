@@ -6,7 +6,7 @@ import json
 import numpy as np
 from pathlib import Path
 
-def analyze_results(json_path="comprehensive_results.json"):
+def analyze_results(json_path="output250/comprehensive_results.json"):
     """Load results and print formatted summary."""
     
     with open(json_path) as f:
@@ -82,10 +82,10 @@ def analyze_results(json_path="comprehensive_results.json"):
     print(f"\nWithin-subject (avg):     {within_subject_mean:.3f}")
     print(f"Cross-subject (avg):      {cross_subject_mean:.3f}")
     print(f"Combined split:           {combined_mean:.3f}")
-    print(f"Random baseline:          0.250")
+    print(f"Random baseline:          0.50")
     
     print(f"\nWithin-subject advantage: {(within_subject_mean - cross_subject_mean) / cross_subject_mean * 100:.1f}% higher")
-    print(f"Overall improvement:      {(within_subject_mean - 0.25) / 0.25 * 100:.1f}% above random")
+    print(f"Overall improvement:      {(within_subject_mean - 0.50) / 0.50 * 100:.1f}% above random")
     
     # Stability analysis
     print("\n" + "=" * 90)

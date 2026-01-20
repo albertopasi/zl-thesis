@@ -1,0 +1,29 @@
+[project]
+name = "zl-thesis"
+version = "0.1.0"
+description = "TU Delft Master Thesis Codebase"
+requires-python = ">=3.12"
+
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "matplotlib",
+    "torch",
+    "mne",
+    "pyxdf",
+    "transformers",
+    "click",
+    "tqdm",
+    "einops>=0.8.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter",
+    "jupyterlab",
+    "ipython",
+    "ipykernel",
+    "ipywidgets",
+]
