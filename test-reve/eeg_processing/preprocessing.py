@@ -82,38 +82,35 @@ class EEGPreprocessor:
         
         print(f"\nCreated MNE RawArray: {self.raw}")
     
-    def _is_workload_marker(self, marker):
-        """Check if marker is a workload event."""
-        return TARGET_MARKER_PREFIX.lower() in marker.lower()
+    def _is_valid_marker(self, marker):
+        """Check if marker is a valid task/no-task marker (skip onset/offset)."""
+        marker_lower = marker.lower()
+        # Skip 'onset' and 'offset' markers
+        if marker_lower.startswith('onset ') or marker_lower.startswith('offset '):
+            return False
+        # Only keep markers that start with 'task' or 'no task'
+        if marker_lower.startswith('task') or marker_lower.startswith('no task'):
+            return True
+        return False
     
-    def _extract_workload_level(self, marker):
+    def _extract_binary_label(self, marker):
         """
-        Extract workload level from marker name.
-        Maps full marker names to simplified workload levels: original, low, medium, high
+        Extract binary label from marker: task=1, no task=0
         
         Args:
             marker: Full marker string
             
         Returns:
-            str: Simplified workload level (e.g., 'original workload')
+            int: 0 for 'no task', 1 for 'task'
         """
         marker_lower = marker.lower()
-        
-        # Map workload levels (order matters: check most specific first)
-        workload_levels = {
-            'high workload': 'high workload',
-            'medium workload': 'medium workload',
-            'low workload': 'low workload',
-            'original workload': 'original workload',
-        }
-        
-        for level_pattern, level_name in workload_levels.items():
-            if level_pattern in marker_lower:
-                return level_name
-        
-        # Fallback: return original marker if no pattern matched
-        print(f"Warning: Could not extract workload level from marker: {marker}")
-        return marker
+        if marker_lower.startswith('no task'):
+            return 0
+        elif marker_lower.startswith('task'):
+            return 1
+        else:
+            print(f"Warning: Could not extract binary label from marker: {marker}")
+            return None
     
     def _is_skip_marker(self, marker):
         """Check if marker should be skipped (non-experimental data)."""
@@ -163,24 +160,54 @@ class EEGPreprocessor:
     def _create_events_array(self):
         """Create MNE events array from markers."""
         events = []
-        event_id = {}
-        current_event_id = 1
+        event_id = {'no task': 1, 'task': 2}  # Binary labels: string keys for MNE
         skipped_markers = {}
-        seen_sample_indices = set()  # Track duplicate sample indices
         
+        # First pass: collect all valid markers with timestamps
+        valid_markers_with_ts = []
         for marker, marker_ts in zip(self.markers, self.marker_timestamps):
             # Skip non-experimental markers (breaks, pauses, etc.)
             if self._is_skip_marker(marker):
                 skipped_markers[marker] = skipped_markers.get(marker, 0) + 1
                 continue
             
-            # Filter for workload markers only
-            if not self._is_workload_marker(marker):
+            # Filter for valid task/no-task markers (skip onset/offset)
+            if not self._is_valid_marker(marker):
                 continue
             
-            # Extract simplified workload level from marker
-            simplified_marker = self._extract_workload_level(marker)
+            # Extract binary label
+            label = self._extract_binary_label(marker)
+            if label is None:
+                continue
             
+            valid_markers_with_ts.append((marker, marker_ts, label))
+        
+        # Second pass: remove consecutive duplicates (keep middle marker only)
+        filtered_markers = []
+        i = 0
+        while i < len(valid_markers_with_ts):
+            marker, marker_ts, label = valid_markers_with_ts[i]
+            
+            # Find consecutive markers with same label
+            j = i
+            while j < len(valid_markers_with_ts) and valid_markers_with_ts[j][2] == label:
+                j += 1
+            
+            # We have markers from index i to j-1 with same label
+            # Keep only the middle one
+            count = j - i
+            if count == 1:
+                # Single marker, keep it
+                filtered_markers.append((marker, marker_ts, label))
+            else:
+                # Multiple consecutive markers with same label, keep middle
+                middle_idx = i + count // 2
+                filtered_markers.append(valid_markers_with_ts[middle_idx])
+            
+            i = j
+        
+        # Third pass: create events array from filtered markers
+        for marker, marker_ts, label in filtered_markers:
             # Find closest sample index to marker timestamp (minimum distance)
             idx = np.argmin(np.abs(self.timestamps - marker_ts))
             
@@ -189,27 +216,18 @@ class EEGPreprocessor:
             if time_diff > (1.0 / self.sampling_rate):
                 print(f"  Warning: Marker '{marker}' misaligned by {time_diff:.6f}s (>{1.0/self.sampling_rate:.6f}s)")
             
-            # # Skip duplicate sample indices (multiple markers at exact same timestamp)
-            # if idx in seen_sample_indices:
-            #     print(f"    Skipping duplicate marker '{marker}' at sample {idx}")
-            #     continue
-            # seen_sample_indices.add(idx)
-            
-            # Create unique event ID for this marker type
-            if simplified_marker not in event_id:
-                event_id[simplified_marker] = current_event_id
-                current_event_id += 1
+            # Map binary label to event ID string
+            label_str = 'no task' if label == 0 else 'task'
             
             # events array: [sample_idx, 0, event_id]
-            events.append([idx, 0, event_id[simplified_marker]])
+            events.append([idx, 0, event_id[label_str]])
         
         events = np.array(events)
         
         # Print event ID mapping
-        print(f"\nEvent ID mapping:")
-        for marker, event_num in sorted(event_id.items(), key=lambda x: x[1]):
-            count = np.sum(events[:, 2] == event_num)
-            print(f"  {marker}: ID={event_num} (count={count})")
+        print(f"\nBinary Event ID mapping:")
+        print(f"  no task: ID={event_id['no task']} (count={np.sum(events[:, 2] == event_id['no task'])})")
+        print(f"  task: ID={event_id['task']} (count={np.sum(events[:, 2] == event_id['task'])})")
         
         # Print skipped markers
         if skipped_markers:
@@ -230,7 +248,7 @@ class EEGPreprocessor:
         Returns:
             tuple: (epochs_array, labels, metadata)
                 - epochs_array: np.ndarray of shape (num_epochs, num_channels, epoch_samples)
-                - labels: list of epoch labels
+                - labels: list of epoch labels (numeric: 0 for 'no task', 1 for 'task')
                 - metadata: list of dicts with epoch info
         """
         print(f"\nExtracting epochs: [{tmin}, {tmax}] seconds around markers...")
@@ -239,17 +257,15 @@ class EEGPreprocessor:
         events, event_id = self._create_events_array()
         
         if len(events) == 0:
-            print("WARNING: No workload markers found!")
+            print("WARNING: No valid task/no-task markers found!")
             self.epochs = np.array([])
             self.epoch_labels = []
             return self.epochs, self.epoch_labels, []
         
-        print(f"Found {len(events)} workload events (after removing duplicates)")
+        print(f"Found {len(events)} valid events (after filtering onset/offset and deduplicating)")
         
         # Analyze overlapping epochs (informational)
         self._analyze_epoch_overlaps(events, tmin, tmax)
-        
-        # print(f"Event types: {event_id}")
         
         # Create epochs using MNE
         epochs = mne.Epochs(
@@ -264,12 +280,18 @@ class EEGPreprocessor:
         # Convert to numpy array and get labels
         epochs_data = epochs.get_data()  # Shape: (n_epochs, n_channels, n_samples)
         
-        # Create reverse mapping from event_id to marker names
-        id_to_marker = {v: k for k, v in event_id.items()}
-        
         # Get the actual events that were used (MNE may reject/merge some)
         actual_events = epochs.events
-        labels = [id_to_marker[int(e[2])] for e in actual_events if int(e[2]) in id_to_marker]
+        
+        # Map event IDs back to binary labels (0 or 1)
+        # event_id['no task'] = 1, event_id['task'] = 2
+        labels = []
+        for e in actual_events:
+            event_id_val = int(e[2])
+            if event_id_val == event_id['no task']:
+                labels.append(0)
+            elif event_id_val == event_id['task']:
+                labels.append(1)
         
         # Validate label count matches epoch count
         if len(labels) != epochs_data.shape[0]:
@@ -285,14 +307,15 @@ class EEGPreprocessor:
             print(f"\nEpochs dropped during extraction: {n_dropped}")
             print(f"  Original events: {len(events)}")
             print(f"  Extracted epochs: {epochs_data.shape[0]}")
-            print(f"  Reason: Overlapping epoch windows (events too close together)")
-            print(f"  Note: Epochs with overlapping time windows are merged/dropped by MNE")
+            print(f"  Note: Epochs with overlapping time windows are merged/dropped by MNE (?)")
         
         # Create metadata
         metadata = []
         for i, (event, label) in enumerate(zip(actual_events, labels)):
+            label_str = 'no task' if label == 0 else 'task'
             metadata.append({
-                'marker': label,
+                'label': label,
+                'label_str': label_str,
                 'marker_timestamp': self.timestamps[int(event[0])] if int(event[0]) < len(self.timestamps) else None,
                 'sample_index': int(event[0]),
                 'epoch_num': i

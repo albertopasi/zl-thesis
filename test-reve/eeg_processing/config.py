@@ -35,9 +35,9 @@ APPLY_BANDPASS_FILTER = True
 BANDPASS_LOW = 0.5
 BANDPASS_HIGH = 99.5
 
-# Markers to classify - Target: Workload events
-# Keep all markers containing 'workload' (regardless of task/no-task, sparkles, count, etc.)
-TARGET_MARKER_PREFIX = 'workload'
+# Markers to classify - Target: Binary task classification (task vs no task)
+# We filter for markers starting with 'task' or 'no task' (skip 'onset' and 'offset')
+TARGET_MARKER_PREFIX = 'task'  # Used to verify marker validity
 
 # Markers to skip (non-experimental data: breaks, pauses, etc.)
 # These events should be excluded from epochs
@@ -67,7 +67,7 @@ REVE_POSITIONS_MODEL_ID = "brain-bzh/reve-positions"
 HIDDEN_DIM = 512
 NUM_CHANNELS = 96 
 SAMPLE_LENGTH = EPOCH_SAMPLES  # Dynamic: calculated from TMIN, TMAX, SAMPLING_RATE
-NUM_CLASSES = None  # Determined dynamically from actual markers in data (set during preprocessing)
+NUM_CLASSES = 2  # Binary classification: 0 (no task) vs 1 (task)
 
 # Training parameters
 BATCH_SIZE = 32

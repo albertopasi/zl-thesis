@@ -83,9 +83,9 @@ def prepare_data(features, labels, test_size=0.2, random_state=42):
 # ============================================================================
 
 class WorkloadClassifier(nn.Module):
-    """Simple neural network classifier for workload prediction."""
+    """Simple neural network classifier for workload prediction (binary: task vs no-task)."""
     
-    def __init__(self, input_dim=393216, hidden_dim=256, num_classes=4, dropout=0.2):
+    def __init__(self, input_dim=393216, hidden_dim=256, num_classes=2, dropout=0.2):
         super().__init__()
         self.network = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
