@@ -35,13 +35,6 @@ OPTIMIZER_WEIGHT_DECAY = 0.01  # Weight decay for regularization
 # PROJECTION HEAD CONFIGURATION
 # ============================================================================
 
-# REVE feature dimensions by model size
-REVE_FEATURE_DIMS = {
-    "base": 393216,      # REVE-base output dimension
-    "large": 786432,     # REVE-large output dimension (approx)
-}
-
-PROJECTION_HEAD_INPUT_DIM = REVE_FEATURE_DIMS[REVE_MODEL_SIZE]
 PROJECTION_HEAD_OUTPUT_DIM = 512  # Reduced representation dimension
 PROJECTION_HEAD_HIDDEN_DIMS = [2048, 1024, 512]  # Progressive reduction
 PROJECTION_HEAD_USE_BATCH_NORM = True

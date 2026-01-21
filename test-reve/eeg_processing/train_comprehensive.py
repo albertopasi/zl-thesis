@@ -54,7 +54,7 @@ def prepare_data(features, labels, test_size=0.2, random_state=42, pca_component
     Split data into train/test with stratification and PCA dimensionality reduction.
     
     Args:
-        features: Original features (196,608 dimensions)
+        features: Original features
         labels: Binary labels (0 or 1)
         test_size: Fraction for test set
         random_state: Random seed

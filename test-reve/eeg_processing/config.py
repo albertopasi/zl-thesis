@@ -19,8 +19,7 @@ EXCLUDE_CHANNELS = ['AUX_1', 'AUX_2', 'Markers']  # Non-EEG channels to remove
 # Downsampling
 # Set to None to disable downsampling, or set to target Hz
 # DOWNSAMPLE_RATE = None  # Downsample to this frequency (Hz), or None to keep original
-# DOWNSAMPLE_RATE = 200
-DOWNSAMPLE_RATE = 250
+DOWNSAMPLE_RATE = 200
 
 # Epoch extraction - Time window around markers
 TMIN = -1.5  # Start of epoch relative to marker (seconds)
@@ -55,7 +54,7 @@ SKIP_MARKERS = {
 }
 
 # Output
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'output250')
+OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'output200')
 SAVE_PROCESSED_DATA = True
 SAVE_FEATURES = True
 
