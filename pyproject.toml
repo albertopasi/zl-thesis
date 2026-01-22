@@ -18,6 +18,7 @@ dependencies = [
     "tqdm",
     "einops>=0.8.1",
     "peft>=0.18.1",
+    "pytest>=9.0.2",
 ]
 
 [project.optional-dependencies]

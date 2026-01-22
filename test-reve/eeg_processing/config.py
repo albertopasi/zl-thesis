@@ -3,9 +3,22 @@ Configuration for EEG processing pipeline.
 """
 
 import os
+from pathlib import Path
 
-# Data paths
-DATA_ROOT = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
+# Data paths - Handle nested structure (e.g., data/Zander Labs/sub-*)
+_base_data_root = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
+
+# Search for ZL_Dataset subdirectories (e.g., "Zander Labs")
+# If a subdirectory contains sub-* folders, use it as DATA_ROOT
+DATA_ROOT = _base_data_root
+_data_path = Path(_base_data_root)
+if _data_path.exists():
+    for item in _data_path.iterdir():
+        if item.is_dir():
+            # Check if this directory contains sub-* directories
+            if any(d.name.startswith('sub-') for d in item.iterdir() if d.is_dir()):
+                DATA_ROOT = str(item)
+                break
 
 # Stream detection patterns (identified by name/type, not fixed indices)
 EEG_STREAM_PATTERN = 'actiCHamp'
