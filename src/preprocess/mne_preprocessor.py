@@ -1,37 +1,147 @@
 """
 MNE-based EEG preprocessor for ZL_Dataset.
 
+DATASET-SPECIFIC NOTE: This implementation is customized for the ZL_Dataset format,
+which uses task/no-task markers with specific onset/offset filtering rules.
+
 Implements preprocessing pipeline from test-reve/eeg_processing with:
 - Channel filtering (exclude AUX and Markers)
-- Bandpass filtering
-- Common Average Reference (CAR)
+- Bandpass filtering (FIR method)
+- Downsampling to 200 Hz
 - Epoch extraction around markers
 - Per-epoch z-score normalization
+- ZL-specific marker parsing and deduplication
 """
 
 from typing import Dict, Any, Tuple, List
 import numpy as np
 import mne
+import json
 
 from .base import EEGPreprocessor
 from .preprocess_config import (
-    MNE_BANDPASS_LOW, MNE_BANDPASS_HIGH, APPLY_CAR_REFERENCE,
+    MNE_BANDPASS_LOW, MNE_BANDPASS_HIGH,
     EPOCH_TMIN, EPOCH_TMAX, NORMALIZE_METHOD, NORMALIZE_PER_EPOCH,
     EXCLUDE_CHANNELS, SKIP_MARKERS, TASK_MARKER_PREFIX, NO_TASK_MARKER_PREFIX,
     DOWNSAMPLE_RATE
 )
+from .electrode_handler import ElectrodePositionExtractor
 
 
-class MNEPreprocessor(EEGPreprocessor):
+class ZLMarkerHandler:
+    """
+    ZL_Dataset-specific marker parsing and classification logic.
+    
+    Handles:
+    - Filtering non-experimental markers (Recording/Start, Break, Pause, Rest, etc.)
+    - Filtering onset/offset markers
+    - Binary classification (task vs no-task)
+    - Deduplication of consecutive same-label markers
+    """
+    
+    def __init__(self, 
+                 task_marker_prefix: str = TASK_MARKER_PREFIX,
+                 no_task_marker_prefix: str = NO_TASK_MARKER_PREFIX,
+                 skip_markers: set = SKIP_MARKERS):
+        """Initialize marker handler with ZL_Dataset configuration."""
+        self.task_marker_prefix = task_marker_prefix.lower()
+        self.no_task_marker_prefix = no_task_marker_prefix.lower()
+        self.skip_markers = {m.lower() for m in skip_markers}
+    
+    def is_skip_marker(self, marker: str) -> bool:
+        """Check if marker should be skipped (non-experimental)."""
+        marker_lower = marker.lower()
+        return any(skip in marker_lower for skip in self.skip_markers)
+    
+    def is_valid_marker(self, marker: str) -> bool:
+        """Check if marker is valid task/no-task (excluding onset/offset)."""
+        marker_lower = marker.lower()
+        
+        # Exclude onset/offset markers
+        # Look for "onset task", "onset no task", "offset task", "offset no task"
+        # (not just "onset" anywhere, since "(Def/PD, Onset)" appears on all markers)
+        exclude_patterns = ['onset task', 'onset no task', 'offset task', 'offset no task']
+        if any(pattern in marker_lower for pattern in exclude_patterns):
+            return False
+        
+        # Check for task or no-task prefix
+        return (self.task_marker_prefix in marker_lower or 
+                self.no_task_marker_prefix in marker_lower)
+    
+    def extract_binary_label(self, marker: str) -> int:
+        """Extract binary label (0=no task, 1=task)."""
+        marker_lower = marker.lower()
+        if marker_lower.startswith(self.no_task_marker_prefix):
+            return 0
+        elif marker_lower.startswith(self.task_marker_prefix):
+            return 1
+        return None
+    
+    def process_markers(self, 
+                       markers: List[str],
+                       marker_timestamps: np.ndarray
+                       ) -> Tuple[List[Tuple[str, float, int]], Dict[str, int]]:
+        """
+        Process markers with ZL_Dataset-specific rules.
+        
+        Returns:
+            tuple: (filtered_markers, skipped_marker_counts)
+                filtered_markers: List of (marker, timestamp, label) tuples
+                skipped_marker_counts: Dict of skipped marker names and their counts
+        """
+        skipped_markers = {}
+        valid_markers_with_ts = []
+        
+        # Filter and classify valid markers
+        for marker, marker_ts in zip(markers, marker_timestamps):
+            if self.is_skip_marker(marker):
+                skipped_markers[marker] = skipped_markers.get(marker, 0) + 1
+                continue
+            
+            if not self.is_valid_marker(marker):
+                continue
+            
+            label = self.extract_binary_label(marker)
+            if label is None:
+                continue
+            
+            valid_markers_with_ts.append((marker, marker_ts, label))
+        
+        # Deduplicate consecutive same-label markers
+        filtered_markers = []
+        i = 0
+        while i < len(valid_markers_with_ts):
+            marker, marker_ts, label = valid_markers_with_ts[i]
+            j = i
+            while j < len(valid_markers_with_ts) and valid_markers_with_ts[j][2] == label:
+                j += 1
+            
+            count = j - i
+            if count == 1:
+                filtered_markers.append((marker, marker_ts, label))
+            else:
+                # Keep middle marker of duplicates
+                middle_idx = i + count // 2
+                filtered_markers.append(valid_markers_with_ts[middle_idx])
+            
+            i = j
+        
+        return filtered_markers, skipped_markers
+
+
+class MNEPreprocessorZLDataset(EEGPreprocessor):
     """
     MNE-based preprocessor for ZL_Dataset EEG data.
     
-    Pipeline:
-    1. Create MNE RawArray and exclude non-EEG channels (AUX_*, Markers)
-    2. Apply bandpass filter (0.5-99.5 Hz)
+    DATASET-SPECIFIC: Customized for ZL_Dataset marker format and requirements.
+    
+    Pipeline (in order):
+    1. Channel exclusion: Remove non-EEG channels (AUX_*, Markers) - FIRST STEP
+    2. Apply FIR bandpass filter (0.5-99.5 Hz)
     3. Downsample from 500 Hz to 200 Hz
-    4. Extract epochs around marker events (tmin=-1.5s, tmax=1.5s)
+    4. Extract epochs around task/no-task markers (tmin=-1.5s, tmax=1.5s)
     5. Normalize each epoch with z-score
+    6. Handle ZL-specific marker rules (onset/offset filtering, deduplication)
     """
     
     def __init__(self, eeg_data: np.ndarray, 
@@ -40,66 +150,104 @@ class MNEPreprocessor(EEGPreprocessor):
                  marker_timestamps: np.ndarray,
                  channel_labels: List[str] = None,
                  sampling_rate: float = 500.0):
-        """Initialize MNE preprocessor."""
+        """Initialize MNE preprocessor for ZL_Dataset."""
         super().__init__(eeg_data, eeg_timestamps, markers, marker_timestamps, 
                          channel_labels, sampling_rate)
         self.excluded_indices = []
+        self.marker_handler = ZLMarkerHandler()
         self._create_raw_array()
     
-    def _create_raw_array(self):
-        """Create MNE RawArray, excluding non-EEG channels."""
+    def _exclude_non_eeg_channels(self) -> Tuple[np.ndarray, List[str]]:
+        """
+        Exclude non-EEG channels from raw data.
+        Removes AUX channels and Markers channel before any filtering.
+        
+        Returns:
+            tuple: (filtered_eeg_data, filtered_channel_labels)
+                - filtered_eeg_data: EEG data with only EEG channels (shape: samples, n_eeg_channels)
+                - filtered_channel_labels: List of remaining EEG channel names
+        """
         # Identify channels to exclude
         self.excluded_indices = []
+        excluded_names = []
         for i, label in enumerate(self.channel_labels):
             for exclude_pattern in EXCLUDE_CHANNELS:
                 if exclude_pattern.lower() in label.lower():
                     self.excluded_indices.append(i)
+                    excluded_names.append(label)
                     break
         
-        # Create channel info
-        ch_names = self.channel_labels
-        ch_types = ['eeg'] * len(ch_names)
-        info = mne.create_info(ch_names=ch_names, sfreq=self.sampling_rate, ch_types=ch_types)
+        # Keep only EEG channels
+        keep_indices = [i for i in range(len(self.channel_labels)) if i not in self.excluded_indices]
+        eeg_data_filtered = self.eeg_data[:, keep_indices]
+        eeg_ch_names = [self.channel_labels[i] for i in keep_indices]
         
-        # Create RawArray
-        self.raw = mne.io.RawArray(self.eeg_data.T, info, verbose=False)
+        print(f"\nChannel Exclusion")
+        print(f"  Input channels: {len(self.channel_labels)}")
+        print(f"  Excluded {len(self.excluded_indices)} non-EEG channels:")
+        for name in excluded_names:
+            print(f"    - {name}")
+        print(f"  Output channels: {len(eeg_ch_names)} EEG channels")
+        print(f"  Data shape: {eeg_data_filtered.shape} (samples, channels)")
         
-        print(f"Created MNE RawArray: {self.raw.get_data().shape}")
-        print(f"  Excluding {len(self.excluded_indices)} non-EEG channels: {[self.channel_labels[i] for i in self.excluded_indices]}")
+        return eeg_data_filtered, eeg_ch_names
+    
+    def _create_raw_array(self):
+        """Create MNE RawArray with only EEG channels (channels already excluded)."""
+        # Exclude non-EEG channels
+        eeg_data_filtered, eeg_ch_names = self._exclude_non_eeg_channels()
+        
+        # Create channel info with only EEG channels
+        ch_types = ['eeg'] * len(eeg_ch_names)
+        info = mne.create_info(ch_names=eeg_ch_names, sfreq=self.sampling_rate, ch_types=ch_types)
+        
+        # Create RawArray with filtered data
+        self.raw = mne.io.RawArray(eeg_data_filtered.T, info, verbose=False)
+        
+        print(f"  Created MNE RawArray: {self.raw.get_data().shape} (channels, samples)")
     
     def preprocess(self, l_freq=MNE_BANDPASS_LOW, h_freq=MNE_BANDPASS_HIGH, **kwargs) -> np.ndarray:
         """
-        Apply MNE preprocessing: bandpass filter -> downsample.
+        Apply MNE preprocessing pipeline (channels already excluded in __init__).
         
         Pipeline order:
-        1. Bandpass filter
-        2. Downsample to target rate
+        1. Channel exclusion (already done in _create_raw_array)
+        2. FIR Bandpass filter
+        3. Downsample to target rate
+        
+        IMPORTANT: Markers/annotations are tied to absolute time (seconds), not sample indices.
+        When raw.resample() is called, MNE automatically updates raw.info['sfreq'] and 
+        re-indexes all annotations. In extract_epochs(), use mne.events_from_annotations()
+        to get correct sample indices based on the current sampling rate.
         
         Args:
             l_freq: Low frequency for bandpass (Hz)
             h_freq: High frequency for bandpass (Hz)
             
         Returns:
-            np.ndarray: Preprocessed EEG data
+            np.ndarray: Preprocessed EEG data (only EEG channels, filtered, downsampled)
         """
         if self.raw is None:
             raise RuntimeError("RawArray not created. Call _create_raw_array() first.")
         
-        print(f"\nApplying MNE preprocessing...")
-        print(f"  Bandpass filter: {l_freq}-{h_freq} Hz")
+        print(f"\n Bandpass Filtering")
+        print(f"  FIR Bandpass filter: {l_freq}-{h_freq} Hz")
         
-        # 1. Apply bandpass filter
-        self.raw.filter(l_freq, h_freq, l_trans_bandwidth=1, h_trans_bandwidth=1, 
-                       verbose=False)
+        # Apply FIR bandpass filter (default method in MNE)
+        self.raw.filter(l_freq, h_freq, verbose=False)
         
-        # 2. Downsample if needed
+        # Resample
+        print(f"\n Downsampling")
         if DOWNSAMPLE_RATE is not None and DOWNSAMPLE_RATE < self.sampling_rate:
-            print(f"  Downsampling from {self.sampling_rate} Hz to {DOWNSAMPLE_RATE} Hz...")
+            print(f"  From {self.sampling_rate} Hz to {DOWNSAMPLE_RATE} Hz...")
             self.raw.resample(DOWNSAMPLE_RATE, verbose=False)
             self.sampling_rate = DOWNSAMPLE_RATE
-            print(f"    New sampling rate: {self.sampling_rate} Hz")
+            print(f"  New sampling rate: {self.sampling_rate} Hz")
         
-        return self.raw.get_data()
+        preprocessed_data = self.raw.get_data()
+        print(f"  Output shape: {preprocessed_data.shape} (channels, samples)")
+        
+        return preprocessed_data
     
     def extract_epochs(self, tmin=EPOCH_TMIN, tmax=EPOCH_TMAX, **kwargs) -> Tuple[np.ndarray, List, List]:
         """
@@ -184,90 +332,70 @@ class MNEPreprocessor(EEGPreprocessor):
         
         return epochs_data, labels, metadata
     
-    def _is_skip_marker(self, marker: str) -> bool:
-        """Check if marker should be skipped."""
-        marker_lower = marker.lower()
-        for skip_pattern in SKIP_MARKERS:
-            if skip_pattern.lower() in marker_lower:
-                return True
-        return False
-    
-    def _is_valid_marker(self, marker: str) -> bool:
-        """Check if marker is valid task/no-task (not onset/offset)."""
-        marker_lower = marker.lower()
-        if marker_lower.startswith('onset') or marker_lower.startswith('offset'):
-            return False
-        if TASK_MARKER_PREFIX.lower() in marker_lower or NO_TASK_MARKER_PREFIX.lower() in marker_lower:
-            return True
-        return False
-    
-    def _extract_binary_label(self, marker: str) -> int:
-        """Extract binary label (0=no task, 1=task)."""
-        marker_lower = marker.lower()
-        if marker_lower.startswith(NO_TASK_MARKER_PREFIX):
-            return 0
-        elif marker_lower.startswith(TASK_MARKER_PREFIX):
-            return 1
-        return None
-    
     def _create_events_array(self) -> Tuple[np.ndarray, Dict]:
-        """Create MNE events array from markers."""
-        events = []
+        """
+        Create MNE events array from ZL_Dataset markers.
+        
+        Uses ZLMarkerHandler to process markers with dataset-specific rules:
+        - Filters non-experimental markers (Recording/Start, Break, Pause, Rest)
+        - Filters onset/offset markers
+        - Deduplicates consecutive same-label markers
+        
+        IMPORTANT: Markers are linked to absolute time (seconds), not sample indices.
+        When raw data is resampled, MNE automatically re-indexes by updating raw.info['sfreq'].
+        We create mne.Annotations tied to time, and MNE will convert them to correct sample indices.
+        """
         event_id = {'no task': 1, 'task': 2}
-        skipped_markers = {}
         
-        # First pass: collect valid markers
-        valid_markers_with_ts = []
-        for marker, marker_ts in zip(self.markers, self.marker_timestamps):
-            if self._is_skip_marker(marker):
-                skipped_markers[marker] = skipped_markers.get(marker, 0) + 1
-                continue
-            
-            if not self._is_valid_marker(marker):
-                continue
-            
-            label = self._extract_binary_label(marker)
-            if label is None:
-                continue
-            
-            valid_markers_with_ts.append((marker, marker_ts, label))
+        # Process markers using ZL_Dataset-specific handler
+        filtered_markers, skipped_markers = self.marker_handler.process_markers(
+            self.markers, self.marker_timestamps
+        )
         
-        # Second pass: deduplicate consecutive same-label markers
-        filtered_markers = []
-        i = 0
-        while i < len(valid_markers_with_ts):
-            marker, marker_ts, label = valid_markers_with_ts[i]
-            j = i
-            while j < len(valid_markers_with_ts) and valid_markers_with_ts[j][2] == label:
-                j += 1
-            
-            count = j - i
-            if count == 1:
-                filtered_markers.append((marker, marker_ts, label))
-            else:
-                middle_idx = i + count // 2
-                filtered_markers.append(valid_markers_with_ts[middle_idx])
-            
-            i = j
+        # Create annotations (tied to relative time, not sample indices)
+        # MNE will automatically handle re-indexing when extracting events
+        # NOTE: Timestamps must be relative to start of recording, not absolute time
+        annotations_onsets = []
+        annotations_durations = []
+        annotations_descriptions = []
         
-        # Third pass: create events array
+        # Get the start time of the recording
+        t_start = self.eeg_timestamps[0]
+        
         for marker, marker_ts, label in filtered_markers:
-            idx = np.argmin(np.abs(self.eeg_timestamps - marker_ts))
+            # Convert absolute marker timestamp to relative time
+            relative_marker_time = marker_ts - t_start
+            
             label_str = 'no task' if label == 0 else 'task'
-            events.append([idx, 0, event_id[label_str]])
+            annotations_onsets.append(relative_marker_time)
+            annotations_durations.append(0)  # Point event (no duration)
+            annotations_descriptions.append(label_str)
         
-        events = np.array(events)
+        # Add annotations to raw data
+        # These are automatically re-indexed when data is resampled
+        annotations = mne.Annotations(
+            onset=annotations_onsets,
+            duration=annotations_durations,
+            description=annotations_descriptions,
+            orig_time=None  # Already in relative time
+        )
+        self.raw.set_annotations(annotations)
         
-        print(f"\nBinary Event ID mapping:")
+        # Extract events from annotations
+        # MNE automatically handles sample index conversion based on current sampling rate
+        events, event_id_from_mne = mne.events_from_annotations(self.raw, event_id={'no task': 1, 'task': 2})
+        
+        print(f"\nZL_Dataset Binary Event ID mapping:")
         print(f"  no task: ID={event_id['no task']} (count={np.sum(events[:, 2] == event_id['no task']) if len(events) > 0 else 0})")
         print(f"  task: ID={event_id['task']} (count={np.sum(events[:, 2] == event_id['task']) if len(events) > 0 else 0})")
         
         if skipped_markers:
-            print(f"\nSkipped non-experimental markers:")
+            print(f"\nSkipped non-experimental markers (ZL_Dataset specific):")
             for marker, count in sorted(skipped_markers.items()):
                 print(f"  {marker}: {count}")
         
         return events, event_id
+    
     
     def _analyze_epoch_overlaps(self, events: np.ndarray, tmin: float, tmax: float):
         """Analyze overlapping epoch windows."""
@@ -321,3 +449,21 @@ class MNEPreprocessor(EEGPreprocessor):
         else:
             print(f"Unknown normalization method: {method}")
             return self.epochs
+    
+    @staticmethod
+    def extract_electrode_positions_from_xdf(xdf_path: str) -> np.ndarray:
+        """
+        Extract electrode positions from XDF file CapTrak metadata.
+        
+        Delegates to ElectrodePositionExtractor for electrode handling.
+        
+        Args:
+            xdf_path: Path to XDF file
+            
+        Returns:
+            np.ndarray: Electrode positions of shape (n_electrodes, 3) with x, y, z coordinates
+        """
+        return ElectrodePositionExtractor.extract_from_xdf(xdf_path)
+
+# Backward compatibility alias
+MNEPreprocessor = MNEPreprocessorZLDataset

@@ -414,7 +414,7 @@ class EEGPreprocessor:
         Get fully processed epochs with filtering and normalization.
         
         Args:
-            preprocess: Apply filtering and CAR reference to raw data first
+            preprocess: Apply filtering to raw data first
             normalize: Apply normalization to epochs
             tmin: Start of epoch relative to marker (seconds)
             tmax: End of epoch relative to marker (seconds)

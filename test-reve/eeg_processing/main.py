@@ -82,7 +82,7 @@ def process_subject(subject_id, session_id, extract_features=True, save_data=Tru
     
     # Get fully processed epochs (with MNE filtering and normalization)
     epochs, epoch_labels, epoch_metadata = preprocessor.get_processed_epochs(
-        preprocess=True,  # Apply MNE filtering and CAR
+        preprocess=True,  # Apply MNE filtering
         normalize=True,    # Apply normalization
         tmin=-1.5,         # 1.5 seconds before marker
         tmax=1.5           # 1.5 seconds after marker

@@ -5,7 +5,6 @@ Configuration for preprocessing pipelines.
 # MNE Preprocessing
 MNE_BANDPASS_LOW = 0.5   # Hz
 MNE_BANDPASS_HIGH = 99.5  # Hz
-APPLY_CAR_REFERENCE = False  # Common Average Reference (disabled)
 DOWNSAMPLE_RATE = 200  # Downsample to this frequency (Hz), or None to keep original 500 Hz
 
 # Epoch extraction

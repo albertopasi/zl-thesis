@@ -83,7 +83,6 @@ The preprocessing pipeline in `src/preprocess/mne_preprocessor.py` implements th
 - [x] Z-score normalization: Per-channel per-epoch after extraction
 - [x] Channel exclusion: AUX_1, AUX_2, Markers removed before processing
 - [x] Marker filtering: SKIP_MARKERS excludes Recording/Start, Recording/End, breaks
-- [x] CAR reference: Disabled (not applied)
 
 ## Preprocessing Configuration
 
@@ -92,7 +91,6 @@ The pipeline is fully configured via `src/preprocess/preprocess_config.py`:
 ```python
 MNE_BANDPASS_LOW = 0.5        # Hz
 MNE_BANDPASS_HIGH = 99.5      # Hz
-APPLY_CAR_REFERENCE = False   # Disabled
 DOWNSAMPLE_RATE = 200         # Hz
 EPOCH_TMIN = -1.5             # seconds
 EPOCH_TMAX = 1.5              # seconds

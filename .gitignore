@@ -8,3 +8,4 @@ output250
 models/pretrained
 thesis_plan.pdf
 .pytest_cache
+debug_output
