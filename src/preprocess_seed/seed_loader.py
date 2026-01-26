@@ -94,31 +94,33 @@ class SEEDEEGLoader:
     
     def _validate_montage(self, raw: mne.io.Raw, subject_id: int, session_id: int) -> None:
         """
-        Validate that all channels have positions.
+        Validate that all EEG channels have positions.
         
         Args:
             raw: MNE Raw object with montage set
             subject_id: Subject ID (for reporting)
             session_id: Session ID (for reporting)
-            
-        Raises:
-            ValueError: If any channels lack position information
         """
-        # Get channels with position information
+        # Get EEG channels with position information
+        # Non-EEG channels (M1, M2, VEO, HEO) are expected to have NaN positions
         chs_without_pos = []
-        for ch_name in raw.ch_names:
-            if ch_name not in raw.info['chs']:
+        
+        for ch_idx, ch_name in enumerate(raw.ch_names):
+            ch_info = raw.info['chs'][ch_idx]
+            loc = ch_info['loc'][:3]  # x, y, z coordinates
+            
+            # Check if position is missing (all zeros or contains NaN)
+            has_position = not (np.allclose(loc, 0) or np.any(np.isnan(loc)))
+            
+            if not has_position and ch_name not in ['M1', 'M2', 'VEO', 'HEO']:
+                # Missing position for an EEG channel - this is a real issue
                 chs_without_pos.append(ch_name)
-            else:
-                ch_info = raw.info['chs'][raw.ch_names.index(ch_name)]
-                if ch_info['loc'][:3].sum() == 0:  # Check if position is zero (missing)
-                    chs_without_pos.append(ch_name)
         
         if chs_without_pos:
             print(f"Warning (Sub {subject_id}, Ses {session_id}): "
-                  f"{len(chs_without_pos)} channels without position: {chs_without_pos[:5]}...")
+                  f"{len(chs_without_pos)} EEG channels without position: {chs_without_pos[:5]}...")
         else:
-            print(f"✓ Sub {subject_id}, Ses {session_id}: All {len(raw.ch_names)} channels have positions")
+            print(f"✓ Sub {subject_id}, Ses {session_id}: All EEG channels have valid positions")
     
     def load_all_subjects_sessions(self) -> List[Tuple[int, int, mne.io.Raw]]:
         """
