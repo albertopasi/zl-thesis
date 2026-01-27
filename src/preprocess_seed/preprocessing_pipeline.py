@@ -156,22 +156,11 @@ class SEEDPreprocessingPipeline:
             
             # Signal Conditioning (Continuous Logic)
             
-            # Apply bandpass filter to the entire buffer (continuous)
-            if self.config.is_step_enabled('bandpass_filter'):
-                buffer = mne.filter.filter_data(
-                    buffer,
-                    sfreq=original_sfreq,
-                    l_freq=self.config.filter_lowcut_hz,
-                    h_freq=self.config.filter_highcut_hz,
-                    verbose=False
-                )
-                if self.config.verbose:
-                    print(f"  Applied bandpass filter: {self.config.filter_lowcut_hz}-{self.config.filter_highcut_hz} Hz")
-            
             # Resample the entire buffer (continuous)
             if self.config.is_step_enabled('downsample'):
                 # Downsample: up=1, down=original_sfreq/target_sfreq
                 down_factor = int(original_sfreq / self.config.downsample_freq_hz)
+                print(f"  Downsampling: {original_sfreq} Hz -> {self.config.downsample_freq_hz} Hz (factor 1:{down_factor})...")
                 buffer = mne.filter.resample(
                     buffer,
                     up=1,
@@ -179,10 +168,21 @@ class SEEDPreprocessingPipeline:
                     verbose=False
                 )
                 current_sfreq = self.config.downsample_freq_hz
-                if self.config.verbose:
-                    print(f"  Downsampled: {original_sfreq} Hz → {current_sfreq} Hz (ratio: 1:{down_factor})")
+                print(f"  Downsampled to {buffer.shape[1]:,} samples")
             else:
                 current_sfreq = original_sfreq
+
+            # Apply bandpass filter to the entire buffer (continuous)
+            if self.config.is_step_enabled('bandpass_filter'):
+                print(f"  Applying bandpass filter: {self.config.filter_lowcut_hz}-{self.config.filter_highcut_hz} Hz...")
+                buffer = mne.filter.filter_data(
+                    buffer,
+                    sfreq=current_sfreq,
+                    l_freq=self.config.filter_lowcut_hz,
+                    h_freq=self.config.filter_highcut_hz,
+                    verbose=False
+                )
+                print(f"  Filtered")
             
             # Calculate Session-Level Statistics
             # Compute global mean and std from entire resampled buffer for Z-normalization
