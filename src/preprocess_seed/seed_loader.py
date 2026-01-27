@@ -223,7 +223,7 @@ class SEEDEEGLoader:
             has_position = not (np.allclose(loc, 0) or np.any(np.isnan(loc)))
             
             if not has_position and ch_name not in ['M1', 'M2', 'VEO', 'HEO']:
-                # Missing position for an EEG channel - this is a real issue
+                # Missing position for an EEG channel
                 chs_without_pos.append(ch_name)
         
         if chs_without_pos:

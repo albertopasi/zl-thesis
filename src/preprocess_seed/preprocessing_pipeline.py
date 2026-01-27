@@ -123,7 +123,7 @@ class SEEDPreprocessingPipeline:
                 if self.config.verbose:
                     print(f"  ✓ Dropped non-EEG channels: {self.config.non_eeg_channels}")
             
-            #  Construct Manual Buffer
+            # Construct Manual Buffer
             # Extract individual trials using time.txt indices
             if self.start_points is None or self.end_points is None:
                 if self.config.verbose:
