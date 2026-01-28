@@ -1,18 +1,30 @@
 """
-Data loader for the ZL_Dataset.
-Handles dynamic subject discovery.
+Data loader for the ZL_Dataset (Zander Labs).
+Handles dynamic subject discovery and XDF file loading.
 """
 
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
-import re
 
-from .base import DataLoader
-from .zl_config import ZL_EEG_STREAM_PATTERN, ZL_MARKER_STREAM_PATTERN, ZL_EEG_FILE_PATTERN
+# ============================================================================
+# ZL_DATASET CONFIGURATION
+# ============================================================================
+
+# Stream detection patterns (must match XDF stream names)
+ZL_EEG_STREAM_PATTERN = 'actiCHamp'
+ZL_MARKER_STREAM_PATTERN = 'ZLT-markers'
+
+# File matching pattern
+ZL_EEG_FILE_PATTERN = '*.xdf'
+
+# Expected dataset properties (for validation/assertions)
+ZL_SAMPLING_RATE = 500.0  # Hz
+ZL_NUM_CHANNELS = 96  # Number of EEG channels (excludes AUX and Markers)
+ZL_TOTAL_CHANNELS = 99  # Total channels including AUX and Markers
 
 
-class ZLDataset(DataLoader):
+class ZLDataset:
     """
     Loader for the ZL_Dataset EEG dataset (Zander Labs).
     
@@ -43,15 +55,23 @@ class ZLDataset(DataLoader):
         
         Args:
             dataset_root: Root directory of the dataset
-            eeg_pattern: Pattern to match EEG files (default from config)
-            eeg_stream_pattern: Stream name pattern for EEG data (default from config)
-            marker_stream_pattern: Stream name pattern for markers (default from config)
+            eeg_pattern: Pattern to match EEG files (default: *.xdf)
+            eeg_stream_pattern: Stream name pattern for EEG data (default: actiCHamp)
+            marker_stream_pattern: Stream name pattern for markers (default: ZLT-markers)
         """
+        self.dataset_root = Path(dataset_root)
+        if not self.dataset_root.exists():
+            raise FileNotFoundError(f"Dataset root not found: {self.dataset_root}")
+        
         self.eeg_pattern = eeg_pattern
         self.eeg_stream_pattern = eeg_stream_pattern
         self.marker_stream_pattern = marker_stream_pattern
-        self._subject_paths = {}  # Map subject_id to actual directory path
-        super().__init__(dataset_root)
+        
+        self.subjects: List[str] = []
+        self.sessions: Dict[str, List[str]] = {}
+        self._subject_paths: Dict[str, Path] = {}  # Map subject_id to actual directory path
+        
+        self._discover_subjects()
     
     def _discover_subjects(self):
         """
@@ -223,3 +243,77 @@ class ZLDataset(DataLoader):
                 if ts_len > 0:
                     return stream
         return None
+    
+    # Convenience methods
+    def get_all_subjects(self) -> List[str]:
+        """Get list of all available subjects."""
+        return sorted(self.subjects)
+    
+    def get_sessions_for_subject(self, subject_id: str) -> List[str]:
+        """Get sessions available for a subject."""
+        return self.sessions.get(subject_id, [])
+    
+    def get_all_subject_sessions(self) -> List[Tuple[str, str]]:
+        """
+        Get all (subject, session) pairs.
+        
+        Returns:
+            List of (subject_id, session_id) tuples
+        """
+        pairs = []
+        for subject_id in sorted(self.subjects):
+            for session_id in sorted(self.sessions.get(subject_id, [])):
+                pairs.append((subject_id, session_id))
+        return pairs
+    
+    def __repr__(self) -> str:
+        return f"ZLDataset(subjects={len(self.subjects)}, root={self.dataset_root})"
+
+
+def get_zl_dataset(dataset_root: Optional[str] = None) -> ZLDataset:
+    """
+    Convenience function to get a ZL dataset loader.
+    
+    Args:
+        dataset_root: Root directory of dataset. If None, tries to auto-detect.
+        
+    Returns:
+        ZLDataset instance
+    """
+    if dataset_root is None:
+        dataset_root = _auto_detect_dataset_root()
+        if dataset_root is None:
+            raise FileNotFoundError(
+                "Could not auto-detect dataset root. Please provide dataset_root explicitly."
+            )
+    
+    return ZLDataset(dataset_root)
+
+
+def _auto_detect_dataset_root() -> Optional[str]:
+    """
+    Auto-detect dataset root by searching for common patterns.
+    Handles nested structures like data/Zander Labs/sub-*.
+    
+    Returns:
+        Path to dataset root or None
+    """
+    current = Path.cwd()
+    
+    for _ in range(5):  # Search up to 5 levels
+        # Check for data folder
+        data_folder = current / 'data'
+        if data_folder.exists():
+            # Look for subject directories at any depth
+            subject_dirs = list(data_folder.rglob('sub-*'))
+            if subject_dirs:
+                # Return the data folder (loader will search recursively)
+                return str(data_folder)
+        
+        # Move up one level
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    
+    return None

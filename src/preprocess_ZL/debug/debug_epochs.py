@@ -16,16 +16,16 @@ from typing import List, Tuple, Dict, Any
 import sys
 from datetime import datetime
 
-# Add src to path (go up 3 levels from src/preprocess/debug/ to workspace root)
+# Add src to path (go up 3 levels from src/preprocess_zl/debug/ to workspace root)
 workspace_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(workspace_root / "src"))
 
-from preprocess.mne_preprocessor import MNEPreprocessor, MNEPreprocessorZLDataset
-from preprocess.preprocess_config import (
+from preprocess_ZL.zl_preprocessing_pipeline import ZLPreprocessingPipeline
+from preprocess_ZL.preprocessing_config import (
     EPOCH_TMIN, EPOCH_TMAX, DOWNSAMPLE_RATE,
     MNE_BANDPASS_LOW, MNE_BANDPASS_HIGH
 )
-from data_loader.zl_dataset import ZLDataset
+from preprocess_ZL.zl_dataset import ZLDataset
 
 
 def print_section(title: str):

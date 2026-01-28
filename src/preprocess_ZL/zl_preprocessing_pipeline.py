@@ -1,5 +1,5 @@
 """
-MNE-based EEG preprocessor for ZL_Dataset.
+MNE-based EEG preprocessing pipeline for ZL_Dataset.
 
 DATASET-SPECIFIC NOTE: This implementation is customized for the ZL_Dataset format,
 which uses task/no-task markers with specific onset/offset filtering rules.
@@ -18,8 +18,7 @@ import numpy as np
 import mne
 import json
 
-from .base import EEGPreprocessor
-from .preprocess_config import (
+from .preprocessing_config import (
     MNE_BANDPASS_LOW, MNE_BANDPASS_HIGH,
     EPOCH_TMIN, EPOCH_TMAX, NORMALIZE_METHOD, NORMALIZE_PER_EPOCH,
     EXCLUDE_CHANNELS, SKIP_MARKERS, TASK_MARKER_PREFIX, NO_TASK_MARKER_PREFIX,
@@ -129,9 +128,9 @@ class ZLMarkerHandler:
         return filtered_markers, skipped_markers
 
 
-class MNEPreprocessorZLDataset(EEGPreprocessor):
+class ZLPreprocessingPipeline:
     """
-    MNE-based preprocessor for ZL_Dataset EEG data.
+    MNE-based preprocessing pipeline for ZL_Dataset EEG data.
     
     DATASET-SPECIFIC: Customized for ZL_Dataset marker format and requirements.
     
@@ -150,9 +149,18 @@ class MNEPreprocessorZLDataset(EEGPreprocessor):
                  marker_timestamps: np.ndarray,
                  channel_labels: List[str] = None,
                  sampling_rate: float = 500.0):
-        """Initialize MNE preprocessor for ZL_Dataset."""
-        super().__init__(eeg_data, eeg_timestamps, markers, marker_timestamps, 
-                         channel_labels, sampling_rate)
+        """Initialize ZL preprocessing pipeline."""
+        self.eeg_data = eeg_data
+        self.eeg_timestamps = eeg_timestamps
+        self.markers = markers
+        self.marker_timestamps = marker_timestamps
+        self.channel_labels = channel_labels or [f"CH{i}" for i in range(eeg_data.shape[1])]
+        self.sampling_rate = sampling_rate
+        
+        self.raw = None
+        self.epochs = None
+        self.epoch_labels = []
+        self.epoch_metadata = []
         self.excluded_indices = []
         self.marker_handler = ZLMarkerHandler()
         self._create_raw_array()
@@ -450,6 +458,18 @@ class MNEPreprocessorZLDataset(EEGPreprocessor):
             print(f"Unknown normalization method: {method}")
             return self.epochs
     
+    def get_processed_epochs(self, **kwargs) -> Tuple[np.ndarray, List, List]:
+        """
+        Get fully processed epochs (preprocess -> extract -> normalize).
+        
+        Returns:
+            tuple: (epochs, labels, metadata)
+        """
+        self.preprocess(**kwargs)
+        epochs, labels, metadata = self.extract_epochs(**kwargs)
+        epochs = self.normalize_epochs(**kwargs)
+        return epochs, labels, metadata
+    
     @staticmethod
     def extract_electrode_positions_from_xdf(xdf_path: str) -> np.ndarray:
         """
@@ -465,5 +485,7 @@ class MNEPreprocessorZLDataset(EEGPreprocessor):
         """
         return ElectrodePositionExtractor.extract_from_xdf(xdf_path)
 
-# Backward compatibility alias
-MNEPreprocessor = MNEPreprocessorZLDataset
+
+# Backward compatibility aliases
+MNEPreprocessor = ZLPreprocessingPipeline
+MNEPreprocessorZLDataset = ZLPreprocessingPipeline

@@ -9,7 +9,7 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from data_loader import get_data_loader
+from preprocess_ZL import get_zl_dataset
 
 
 @pytest.fixture(scope="session")
@@ -18,7 +18,7 @@ def zl_dataset():
     Load ZL_Dataset once per test session.
     This fixture is shared across all tests.
     """
-    loader = get_data_loader('zl')
+    loader = get_zl_dataset()
     return loader
 
 

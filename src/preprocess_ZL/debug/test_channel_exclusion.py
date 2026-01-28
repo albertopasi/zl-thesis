@@ -4,12 +4,12 @@
 import sys
 from pathlib import Path
 
-# Add src to path (go up 3 levels from src/preprocess/debug/ to workspace root)
+# Add src to path (go up 3 levels from src/preprocess_zl/debug/ to workspace root)
 workspace_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(workspace_root / "src"))
 
-from data_loader.zl_dataset import ZLDataset
-from preprocess.mne_preprocessor import MNEPreprocessorZLDataset
+from preprocess_ZL.zl_dataset import ZLDataset
+from preprocess_ZL.zl_preprocessing_pipeline import ZLPreprocessingPipeline
 
 # Load first subject
 dataset = ZLDataset(workspace_root / "data/Zander Labs")
@@ -26,7 +26,7 @@ print(f"  Shape: {data_dict['eeg'].shape}")
 print(f"  Channels: {len(data_dict['channel_labels'])}")
 
 # Create preprocessor (this will run channel exclusion)
-preprocessor = MNEPreprocessorZLDataset(
+preprocessor = ZLPreprocessingPipeline(
     eeg_data=data_dict['eeg'],
     eeg_timestamps=data_dict['eeg_timestamps'],
     markers=data_dict['markers'],

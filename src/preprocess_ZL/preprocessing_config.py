@@ -1,5 +1,5 @@
 """
-Configuration for preprocessing pipelines.
+Configuration for ZL_Dataset preprocessing pipeline.
 """
 
 # MNE Preprocessing

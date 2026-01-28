@@ -9,8 +9,8 @@ import numpy as np
 src_dir = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(src_dir))
 
-from preprocess_seed.preprocessing_pipeline import SEEDPreprocessingPipeline
-from preprocess_seed.preprocessing_config import SEEDPreprocessingConfig
+from preprocess_seed.seed_preprocessing_pipeline import SEEDPreprocessingPipeline
+from preprocess_seed.seed_preprocessing_config import SEEDPreprocessingConfig
 
 
 class TestArtifactClipping:

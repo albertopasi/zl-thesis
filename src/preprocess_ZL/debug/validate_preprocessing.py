@@ -16,13 +16,13 @@ from pathlib import Path
 from typing import Dict, List, Any
 import csv
 
-# Add src to path (go up 3 levels from src/preprocess/debug/ to workspace root)
+# Add src to path (go up 3 levels from src/preprocess_zl/debug/ to workspace root)
 workspace_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(workspace_root / "src"))
 
-from data_loader.zl_dataset import ZLDataset
-from preprocess.mne_preprocessor import MNEPreprocessorZLDataset
-from preprocess.preprocess_config import (
+from preprocess_ZL.zl_dataset import ZLDataset
+from preprocess_ZL.zl_preprocessing_pipeline import ZLPreprocessingPipeline
+from preprocess_ZL.preprocessing_config import (
     EPOCH_TMIN, EPOCH_TMAX, DOWNSAMPLE_RATE,
     MNE_BANDPASS_LOW, MNE_BANDPASS_HIGH,
     EXCLUDE_CHANNELS, SKIP_MARKERS
@@ -87,7 +87,7 @@ def validate_preprocessing_pipeline(dataset: ZLDataset, subject_id: str, session
     print(f"Total markers: {len(data_dict['markers'])}")
     
     # Create preprocessor
-    preprocessor = MNEPreprocessorZLDataset(
+    preprocessor = ZLPreprocessingPipeline(
         eeg_data=data_dict['eeg'],
         eeg_timestamps=data_dict['eeg_timestamps'],
         markers=data_dict['markers'],

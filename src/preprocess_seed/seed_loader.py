@@ -20,8 +20,8 @@ def _read_cnt_header_info(filepath: str) -> dict:
     
     CNT format (Neuroscan):
     - Header is 900 bytes (SETUP struct)
-    - Electrode headers: 75 bytes × n_channels (ELECTLOC structs)
-    - Data starts at: 900 + (75 × n_channels)
+    - Electrode headers: 75 bytes * n_channels (ELECTLOC structs)
+    - Data starts at: 900 + (75 * n_channels)
     
     Key header fields (from http://paulbourke.net/dataformats/eeg/):
       - Offset 370-371: Number of channels (uint16, little-endian)
@@ -30,8 +30,8 @@ def _read_cnt_header_info(filepath: str) -> dict:
       - Offset 886-889: Event table position (int32) - reliable for files < 2GB
       - Offset 890-893: Continuous seconds (float32)
     
-    Sample count formula (from Paul Bourke):
-      n_samples = (EventTablePos - (900 + 75 * n_channels)) / (2 * n_channels)
+    Sample count formula (for int32 data):
+      n_samples = (EventTablePos - (900 + 75 * n_channels)) / (4 * n_channels)
     
     Note on EventTablePos (from MNE's _compute_robust_event_table_position):
       - For files < 2GB: EventTablePos is read directly from header (reliable)

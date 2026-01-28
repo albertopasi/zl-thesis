@@ -8,7 +8,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.preprocess_seed.seed_loader import SEEDEEGLoader
-from src.preprocess_seed.preprocessing_config import SEEDPreprocessingConfig
+from src.preprocess_seed.seed_preprocessing_config import SEEDPreprocessingConfig
 
 
 def inspect_montage():

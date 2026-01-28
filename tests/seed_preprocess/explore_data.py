@@ -8,7 +8,7 @@ import re
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.preprocess_seed.seed_loader import SEEDEEGLoader
-from src.preprocess_seed.config import SEEDConfig
+from src.preprocess_seed.seed_preprocessing_config import SEEDPreprocessingConfig
 
 
 def load_time_markers(seed_raw_dir):
@@ -35,7 +35,7 @@ def load_time_markers(seed_raw_dir):
 
 def main():
     """Load and explore SEED data."""
-    config = SEEDConfig()
+    config = SEEDPreprocessingConfig()
     loader = SEEDEEGLoader(config.seed_raw_dir, config.montage_file)
     
     # Get available subjects and sessions

@@ -27,9 +27,9 @@ The Neuroscan CNT format is a binary format with this structure:
 ║                                                                              ║
 ║  ┌─────────────────────────────────────────────────────────────────────────┐ ║
 ║  │ EEG DATA (variable size)                                                │ ║
-║  │   - Multiplexed int16 samples                                           │ ║
+║  │   - Multiplexed int32 samples                                           │ ║
 ║  │   - Layout: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]          │ ║
-║  │   - Each sample = 2 bytes × n_channels                                  │ ║
+║  │   - Each sample = 4 bytes × n_channels                                  │ ║
 ║  └─────────────────────────────────────────────────────────────────────────┘ ║
 ║                                                                              ║
 ║  ┌─────────────────────────────────────────────────────────────────────────┐ ║
@@ -43,7 +43,7 @@ Memory calculation:
   - Data starts at: 900 + (75 × n_channels) bytes
   - Data ends at: either event_table_offset OR end of file
   - Data size = end_offset - start_offset
-  - n_samples = data_size / (n_channels × 2)  [each sample is int16 = 2 bytes]
+  - n_samples = data_size / (n_channels × 4)  [each sample is int32 = 4 bytes]
 """
 
 import struct
@@ -121,18 +121,18 @@ def inspect_cnt_file_detailed(filepath: str) -> dict:
             data_end_source = "file_size"
         
         data_size = data_end - data_start
-        bytes_per_sample = n_channels * 2  # int16 = 2 bytes
+        bytes_per_sample = n_channels * 4  # int32 = 4 bytes
         n_samples_calculated = data_size // bytes_per_sample
         
         # ===== VERIFY BY READING SOME DATA =====
         f.seek(data_start)
         # Read first few samples to verify format
-        first_samples = np.frombuffer(f.read(bytes_per_sample * 10), dtype='<i2')
+        first_samples = np.frombuffer(f.read(bytes_per_sample * 10), dtype='<i4')
         first_samples = first_samples.reshape((10, n_channels))
         
         # Read last few samples
         f.seek(data_end - bytes_per_sample * 10)
-        last_samples = np.frombuffer(f.read(bytes_per_sample * 10), dtype='<i2')
+        last_samples = np.frombuffer(f.read(bytes_per_sample * 10), dtype='<i4')
         last_samples = last_samples.reshape((10, n_channels))
     
     return {
@@ -252,7 +252,7 @@ def print_detailed_inspection(filepath: str):
     print(f"Data starts at byte: {info['data_start_offset']:,}")
     print(f"Data ends at byte: {info['data_end_offset']:,} (from {info['data_end_source']})")
     print(f"Data size: {info['data_size_bytes']:,} bytes ({info['data_size_bytes']/1024/1024:.2f} MB)")
-    print(f"Bytes per sample row: {info['bytes_per_sample_row']} (= {info['n_channels']} channels × 2 bytes/int16)")
+    print(f"Bytes per sample row: {info['bytes_per_sample_row']} (= {info['n_channels']} channels × 4 bytes/int32)")
     
     print(f"\n--- CALCULATED VALUES ---")
     print(f"Actual n_samples: {info['n_samples_calculated']:,}")

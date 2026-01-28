@@ -15,7 +15,7 @@ from pathlib import Path
 
 # Add src to path to import config
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-from data_loader.zl_config import ZL_SAMPLING_RATE, ZL_NUM_CHANNELS, ZL_TOTAL_CHANNELS
+from preprocess_ZL.zl_dataset import ZL_SAMPLING_RATE, ZL_NUM_CHANNELS, ZL_TOTAL_CHANNELS
 
 
 class TestZLDatasetDiscovery:

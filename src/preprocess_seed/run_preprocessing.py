@@ -1,34 +1,27 @@
 """Run SEED preprocessing pipeline with optional subject/session arguments.
 
 Usage:
-  python run.py                    # Process all subjects
-  python run.py -s 1               # Process subject 1 (all sessions)
-  python run.py -s 1 -se 1         # Process subject 1, session 1
-  python run.py -s 1 -se 1 -q      # Quiet mode
+  python run_preprocessing.py                    # Process all subjects
+  python run_preprocessing.py -s 1               # Process subject 1 (all sessions)
+  python run_preprocessing.py -s 1 -se 1         # Process subject 1, session 1
+  python run_preprocessing.py -s 1 -se 1 -q      # Quiet mode
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Add src directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.preprocess_seed.preprocessing_pipeline import SEEDPreprocessingPipeline
-from src.preprocess_seed.preprocessing_config import SEEDPreprocessingConfig
+from preprocess_seed.seed_preprocessing_pipeline import SEEDPreprocessingPipeline
+from preprocess_seed.seed_preprocessing_config import SEEDPreprocessingConfig
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Run SEED EEG preprocessing pipeline",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python run.py                    # All subjects
-  python run.py -s 1               # Subject 1, all sessions
-  python run.py -s 1 -se 1         # Subject 1, session 1
-  python run.py -s 1 -se 1 -q      # Quiet mode
-        """
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
     parser.add_argument('-s', '--subject', type=int, default=None,

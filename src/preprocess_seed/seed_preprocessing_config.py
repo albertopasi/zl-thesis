@@ -1,4 +1,4 @@
-"""Configuration for SEED EEG preprocessing pipeline."""
+"""Configuration for SEED EEG preprocessing pipeline and data exploration."""
 
 from pathlib import Path
 from dataclasses import dataclass, field

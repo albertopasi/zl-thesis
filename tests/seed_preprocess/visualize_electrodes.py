@@ -11,12 +11,12 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 from src.preprocess_seed.seed_loader import SEEDEEGLoader
-from src.preprocess_seed.config import SEEDConfig
+from src.preprocess_seed.seed_preprocessing_config import SEEDPreprocessingConfig
 
 
 def visualize_montage():
     """Create 2D and 3D visualizations of electrode positions."""
-    config = SEEDConfig()
+    config = SEEDPreprocessingConfig()
     loader = SEEDEEGLoader(config.seed_raw_dir, config.montage_file)
     
     # Get montage positions
