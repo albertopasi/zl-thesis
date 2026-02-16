@@ -15,7 +15,8 @@ from preprocess_seed.seed_preprocessing_config import SEEDPreprocessingConfig
 
 def visualize_raw_session(subject_id: int, session_id: int, 
                          n_channels_display: int = None, 
-                         duration: float = 60):
+                         start_sample: int = 232000,
+                         end_sample: int = 262000):
     """
     Visualize raw EEG session from CNT file.
     
@@ -23,7 +24,8 @@ def visualize_raw_session(subject_id: int, session_id: int,
         subject_id: Subject ID (1-15)
         session_id: Session ID (1-3)
         n_channels_display: Number of channels to display at once (None = all)
-        duration: Time window to display in seconds
+        start_sample: Starting sample index (default 232000)
+        end_sample: Ending sample index (default 262000, 30 seconds)
     """
     config = SEEDPreprocessingConfig()
     
@@ -57,6 +59,13 @@ def visualize_raw_session(subject_id: int, session_id: int,
     if n_channels_display is None:
         n_channels_display = n_channels
     
+    # Convert sample indices to time
+    start_time = start_sample / sfreq
+    end_time = end_sample / sfreq
+    display_duration = end_time - start_time
+    
+    print(f"  Display range: samples {start_sample:,} to {end_sample:,} ({display_duration:.1f} seconds)")
+    
     # Display info
     print(f"\n{'='*70}")
     print(f"Raw object info:")
@@ -71,7 +80,8 @@ def visualize_raw_session(subject_id: int, session_id: int,
     
     try:
         fig = raw.plot(
-            duration=min(duration, duration_sec),
+            start=start_time,
+            duration=display_duration,
             n_channels=n_channels_display,
             scalings='auto',
             title=f"Raw EEG: Subject {subject_id:02d}, Session {session_id}",
@@ -161,8 +171,10 @@ Examples:
                        help='Session ID (1-3)')
     parser.add_argument('-n', '--n-channels', type=int, default=None,
                        help='Number of channels to display (default: all)')
-    parser.add_argument('-d', '--duration', type=float, default=60,
-                       help='Duration window in seconds (default: 60)')
+    parser.add_argument('--start-sample', type=int, default=232000,
+                       help='Starting sample index (default: 232000)')
+    parser.add_argument('--end-sample', type=int, default=262000,
+                       help='Ending sample index (default: 262000, gives 30 seconds)')
     parser.add_argument('--psd', action='store_true',
                        help='Plot power spectral density instead')
     parser.add_argument('--topomap', action='store_true',
@@ -185,7 +197,8 @@ Examples:
     elif args.topomap:
         plot_raw_topomap(args.subject, args.session)
     else:
-        visualize_raw_session(args.subject, args.session, args.n_channels, args.duration)
+        visualize_raw_session(args.subject, args.session, args.n_channels, 
+                            args.start_sample, args.end_sample)
 
 
 if __name__ == "__main__":
