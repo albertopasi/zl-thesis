@@ -8,10 +8,7 @@ with all weights and configuration files.
 Usage:
     python -m src.download_reve.download_models
     uv run python -m src.download_reve.download_models
-    
-Or import and use:
-    from src.download_reve import download_all_reve_models
-    download_all_reve_models()
+
 """
 
 import os

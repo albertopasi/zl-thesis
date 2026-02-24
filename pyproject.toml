@@ -15,6 +15,7 @@ dependencies = [
     "pyxdf",
     "transformers",
     "huggingface_hub[hf_xet]",
+    "h5py",
     "click",
     "tqdm",
     "einops>=0.8.1",
