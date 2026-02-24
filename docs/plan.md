@@ -14,7 +14,7 @@ Channel Selection: Remove the A1 and A2 channels (left and right mastoids). Beca
 
 - Spatial Mapping: Map the 30 standard 10-20 system channel labels to their corresponding physical 3D coordinates using REVE's official pre-registered positions.
 
-- Storage: Save each subject as a single .pt or .npy file (shape: 28 stimuli x 30 channels x 6000 time points).
+- Storage: Save each subject as a single .npy file (shape: 28 stimuli x 30 channels x 6000 time points).
 
 ## Phase 2: Dynamic On-The-Fly Window Extraction
 
