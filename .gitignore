@@ -1,11 +1,11 @@
 .vscode
 __pycache__
-data
+data/*
 output
 output200
 output250
 .venv
-models/pretrained
+models/*
 thesis_plan.pdf
 .pytest_cache
 debug_output

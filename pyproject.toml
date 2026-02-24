@@ -14,6 +14,7 @@ dependencies = [
     "mne",
     "pyxdf",
     "transformers",
+    "huggingface_hub[hf_xet]",
     "click",
     "tqdm",
     "einops>=0.8.1",
