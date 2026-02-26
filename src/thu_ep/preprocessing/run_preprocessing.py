@@ -17,7 +17,7 @@ Usage:
 import argparse
 from pathlib import Path
 
-from .thu_ep_preprocessing_config import THUEPPreprocessingConfig
+from ..config import get_config
 from .thu_ep_preprocessing_pipeline import THUEPPreprocessingPipeline
 
 
@@ -42,26 +42,6 @@ def main():
     )
     
     parser.add_argument(
-        '--verbose',
-        action='store_true',
-        default=True,
-        help='Print detailed progress (default: True).'
-    )
-    
-    parser.add_argument(
-        '--quiet', '-q',
-        action='store_true',
-        help='Suppress detailed output.'
-    )
-    
-    parser.add_argument(
-        '--output-dir', '-o',
-        type=str,
-        default='data/thu ep/preprocessed',
-        help='Output directory for preprocessed files.'
-    )
-    
-    parser.add_argument(
         '--dry-run',
         action='store_true',
         help='List subjects to process without actually processing.'
@@ -69,14 +49,8 @@ def main():
     
     args = parser.parse_args()
     
-    # Create config
-    config = THUEPPreprocessingConfig(
-        preprocessed_output_dir=args.output_dir,
-        verbose=not args.quiet and args.verbose
-    )
-    
-    # Create pipeline
-    pipeline = THUEPPreprocessingPipeline(config)
+    # Create pipeline with default config from configs/thu_ep.yml
+    pipeline = THUEPPreprocessingPipeline()
     
     if args.dry_run:
         # List subjects without processing

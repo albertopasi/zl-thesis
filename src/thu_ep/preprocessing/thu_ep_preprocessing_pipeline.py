@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import re
 
-from .thu_ep_preprocessing_config import THUEPPreprocessingConfig
+from ..config import THUEPConfig, get_config
 from .preprocessing_steps import (
     remove_reference_channels,
     extract_frequency_band,
@@ -33,14 +33,14 @@ from .preprocessing_steps import (
 class THUEPPreprocessingPipeline:
     """Pipeline for preprocessing THU-EP EEG data."""
     
-    def __init__(self, config: Optional[THUEPPreprocessingConfig] = None):
+    def __init__(self, config: Optional[THUEPConfig] = None):
         """
         Initialize the preprocessing pipeline.
         
         Args:
-            config: Configuration object. Uses defaults if not provided.
+            config: Configuration object. Uses default config if not provided.
         """
-        self.config = config or THUEPPreprocessingConfig()
+        self.config = config or get_config()
     
     def _load_mat_file(self, filepath: Path) -> np.ndarray:
         """
@@ -75,7 +75,7 @@ class THUEPPreprocessingPipeline:
         Returns:
             List of paths to subject .mat files
         """
-        raw_path = self.config.raw_data_path
+        raw_path = self.config.raw_data_dir
         
         if not raw_path.exists():
             raise FileNotFoundError(f"Raw data directory not found: {raw_path}")
@@ -133,7 +133,7 @@ class THUEPPreprocessingPipeline:
             # Validate shape
             expected_shape = (
                 self.config.original_n_samples,
-                self.config.n_channels_original,
+                self.config.n_channels,
                 self.config.n_stimuli,
                 len(self.config.band_names)
             )
@@ -142,10 +142,10 @@ class THUEPPreprocessingPipeline:
             
             # Step 1: Extract frequency band
             if self.config.is_step_enabled('extract_band'):
-                band_name = self.config.band_names[self.config.extract_band_index]
+                band_name = self.config.band_names[self.config.broad_band_index]
                 data = extract_frequency_band(
                     data,
-                    self.config.extract_band_index,
+                    self.config.broad_band_index,
                     band_name,
                     verbose=self.config.verbose
                 )
@@ -166,8 +166,8 @@ class THUEPPreprocessingPipeline:
             if self.config.is_step_enabled('downsample'):
                 data = downsample_stimuli(
                     data,
-                    self.config.original_sfreq_hz,
-                    self.config.target_sfreq_hz,
+                    self.config.original_sfreq,
+                    self.config.target_sfreq,
                     verbose=self.config.verbose
                 )
                 if self.config.verbose:
@@ -219,7 +219,7 @@ class THUEPPreprocessingPipeline:
                 output_file = export_subject_npy(
                     subject_id,
                     data,
-                    str(self.config.output_path),
+                    str(self.config.preprocessed_dir),
                     verbose=self.config.verbose
                 )
                 results['output_file'] = output_file
@@ -261,7 +261,7 @@ class THUEPPreprocessingPipeline:
         
         if self.config.verbose:
             print(f"\nProcessing {len(files)} subjects...")
-            print(f"Output directory: {self.config.output_path}")
+            print(f"Output directory: {self.config.preprocessed_dir}")
         
         for filepath in files:
             result = self.process_subject(filepath)
@@ -286,7 +286,7 @@ class THUEPPreprocessingPipeline:
     
     def get_preprocessed_files(self) -> List[Path]:
         """Get list of all preprocessed .npy files."""
-        output_path = self.config.output_path
+        output_path = self.config.preprocessed_dir
         
         if not output_path.exists():
             return []
@@ -312,7 +312,7 @@ class THUEPPreprocessingPipeline:
         Returns:
             Preprocessed data with shape (28, 30, 6000)
         """
-        filepath = self.config.output_path / f"sub_{subject_id:02d}.npy"
+        filepath = self.config.preprocessed_dir / f"sub_{subject_id:02d}.npy"
         
         if not filepath.exists():
             raise FileNotFoundError(f"Preprocessed file not found: {filepath}")

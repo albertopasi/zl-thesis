@@ -1,0 +1,116 @@
+# THU-EP Dataset Configuration
+# =============================
+# Configuration for THU-EP EEG preprocessing and exploration.
+#
+# THU-EP dataset structure:
+# - 80 subjects
+# - 28 stimuli per subject (film clips)
+# - 32 EEG channels
+# - 6 frequency bands per channel
+# - 250 Hz sampling rate
+# - 7500 samples per stimulus (30 seconds)
+
+# =============================================================================
+# Paths (relative to project root)
+# =============================================================================
+paths:
+  raw_data_dir: "data/thu ep/EEG data"
+  ratings_dir: "data/thu ep/Ratings"
+  others_dir: "data/thu ep/Others"
+  preprocessed_output_dir: "data/thu ep/preprocessed"
+
+# =============================================================================
+# Channel Configuration
+# =============================================================================
+channels:
+  # All 32 channels in their original order
+  all_channels:
+    - "Fp1"
+    - "Fp2"
+    - "Fz"
+    - "F3"
+    - "F4"
+    - "F7"
+    - "F8"
+    - "FC1"
+    - "FC2"
+    - "FC5"
+    - "FC6"
+    - "Cz"
+    - "C3"
+    - "C4"
+    - "T7"
+    - "T8"
+    - "A1"
+    - "A2"
+    - "CP1"
+    - "CP2"
+    - "CP5"
+    - "CP6"
+    - "Pz"
+    - "P3"
+    - "P4"
+    - "P7"
+    - "P8"
+    - "PO3"
+    - "PO4"
+    - "Oz"
+    - "O1"
+    - "O2"
+
+  # Reference channels to remove during preprocessing (32 -> 30 channels)
+  channels_to_remove:
+    - "A1"
+    - "A2"
+
+# Frequency Band Configuration
+bands:
+  # Band names in order (indices 0-5)
+  names:
+    - "delta"
+    - "theta"
+    - "alpha"
+    - "beta"
+    - "gamma"
+    - "broad-band"
+
+  # Index of band to extract for preprocessing (5 = broad-band, 0.5-47 Hz)
+  extract_band_index: 5
+
+# Sampling Configuration
+sampling:
+  original_sfreq_hz: 250.0
+  target_sfreq_hz: 200.0
+  original_n_samples: 7500  # 30 seconds at 250 Hz
+  target_n_samples: 6000    # 30 seconds at 200 Hz
+
+# Dataset Dimensions
+dataset:
+  n_subjects: 80
+  n_stimuli: 28
+  n_channels: 32
+  n_bands: 6
+
+  # Expected shape of raw data per subject: (samples, channels, stimuli, bands)
+  expected_raw_shape: [7500, 32, 28, 6]
+
+  # Expected shape of preprocessed data per subject: (stimuli, channels, samples)
+  expected_preprocessed_shape: [28, 30, 6000]
+
+# Preprocessing Parameters
+preprocessing:
+  # Artifact clipping threshold in standard deviations
+  artifact_threshold_std: 15.0
+
+  # Enable/disable individual preprocessing steps
+  steps_enabled:
+    remove_reference_channels: true
+    extract_band: true
+    downsample: true
+    z_normalize: true
+    artifact_clipping: true
+    export_npy: true
+
+# Processing Options
+options:
+  verbose: true

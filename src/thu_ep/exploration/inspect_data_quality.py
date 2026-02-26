@@ -28,20 +28,21 @@ import sys
 import numpy as np
 import h5py
 
-# Configuration
-DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "thu ep"
-RAW_DATA_DIR = DATA_DIR / "EEG data"
-PREPROCESSED_DATA_DIR = DATA_DIR / "preprocessed"
+from ..config import get_config
 
-ALL_CHANNELS = [
-    "Fp1", "Fp2", "Fz", "F3", "F4", "F7", "F8", "FC1", "FC2", "FC5", "FC6",
-    "Cz", "C3", "C4", "T7", "T8", "A1", "A2", "CP1", "CP2", "CP5", "CP6",
-    "Pz", "P3", "P4", "P7", "P8", "PO3", "PO4", "Oz", "O1", "O2"
-]
+# Load configuration
+_cfg = get_config()
 
-EXPECTED_SHAPE = (7500, 32, 28, 6)  # (samples, channels, stimuli, bands)
-BROAD_BAND_INDEX = 5
-ORIGINAL_SFREQ = 250.0
+# Configuration (from config)
+DATA_DIR = _cfg.raw_data_dir.parent
+RAW_DATA_DIR = _cfg.raw_data_dir
+PREPROCESSED_DATA_DIR = _cfg.preprocessed_dir
+
+ALL_CHANNELS = _cfg.all_channels
+
+EXPECTED_SHAPE = _cfg.expected_raw_shape
+BROAD_BAND_INDEX = _cfg.broad_band_index
+ORIGINAL_SFREQ = _cfg.original_sfreq
 
 
 def load_raw_mat_file(filepath: Path) -> np.ndarray:

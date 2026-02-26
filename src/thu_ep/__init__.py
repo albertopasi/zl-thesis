@@ -6,9 +6,11 @@ Submodules:
 - preprocessing: EEG preprocessing pipeline
 """
 
-from .preprocessing import THUEPPreprocessingConfig, THUEPPreprocessingPipeline
+from .config import THUEPConfig, get_config
+from .preprocessing import THUEPPreprocessingPipeline
 
 __all__ = [
-    "THUEPPreprocessingConfig",
+    "THUEPConfig",
+    "get_config",
     "THUEPPreprocessingPipeline",
 ]

@@ -17,12 +17,17 @@ import numpy as np
 import h5py
 import scipy.io as sio
 
+from ..config import get_config
 
-# Data paths
-DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "thu ep"
-EEG_DIR = DATA_DIR / "EEG data"
-RATINGS_FILE = DATA_DIR / "Ratings" / "ratings.mat"
-LABELS_FILE = DATA_DIR / "Others" / "label.mat"
+
+# Load configuration
+_cfg = get_config()
+
+# Data paths (from config)
+DATA_DIR = _cfg.raw_data_dir.parent
+EEG_DIR = _cfg.raw_data_dir
+RATINGS_FILE = _cfg.ratings_dir / "ratings.mat"
+LABELS_FILE = _cfg.others_dir / "label.mat"
 
 
 def print_separator(title: str = ""):

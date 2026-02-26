@@ -41,29 +41,28 @@ except ImportError:
     print("MNE not installed.")
     sys.exit(1)
 
+from ..config import get_config
 
-# Configuration
-DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "thu ep"
-RAW_DATA_DIR = DATA_DIR / "EEG data"
-PREPROCESSED_DATA_DIR = DATA_DIR / "preprocessed"
+# Load configuration
+_cfg = get_config()
 
-# Channel configuration
-ALL_CHANNELS = [
-    "Fp1", "Fp2", "Fz", "F3", "F4", "F7", "F8", "FC1", "FC2", "FC5", "FC6",
-    "Cz", "C3", "C4", "T7", "T8", "A1", "A2", "CP1", "CP2", "CP5", "CP6",
-    "Pz", "P3", "P4", "P7", "P8", "PO3", "PO4", "Oz", "O1", "O2"
-]
+# Configuration (from config)
+DATA_DIR = _cfg.raw_data_dir.parent
+RAW_DATA_DIR = _cfg.raw_data_dir
+PREPROCESSED_DATA_DIR = _cfg.preprocessed_dir
 
-CHANNELS_TO_REMOVE = ["A1", "A2"]
-FINAL_CHANNELS = [ch for ch in ALL_CHANNELS if ch not in CHANNELS_TO_REMOVE]
+# Channel configuration (from config)
+ALL_CHANNELS = _cfg.all_channels
+CHANNELS_TO_REMOVE = _cfg.channels_to_remove
+FINAL_CHANNELS = _cfg.final_channels
 
-# Sampling rates
-ORIGINAL_SFREQ = 250.0  # Hz
-TARGET_SFREQ = 200.0    # Hz
+# Sampling rates (from config)
+ORIGINAL_SFREQ = _cfg.original_sfreq
+TARGET_SFREQ = _cfg.target_sfreq
 
-# Band configuration
-BANDS = ["delta", "theta", "alpha", "beta", "gamma", "broad-band"]
-BROAD_BAND_INDEX = 5
+# Band configuration (from config)
+BANDS = _cfg.band_names
+BROAD_BAND_INDEX = _cfg.broad_band_index
 
 
 def load_raw_mat_file(filepath: Path) -> np.ndarray:
