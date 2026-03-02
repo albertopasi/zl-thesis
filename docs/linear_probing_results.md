@@ -12,15 +12,15 @@
 
 **Results:**
 
-* **Val Accuracy:** **56.25%** ± **1.56%**
-* **Val AUROC:** **0.5747** ± **0.0223**
-* **Val F1-Score:** **0.5761** ± **0.0490**
+* **Val Accuracy:** **56.35%** ± **1.54%**
+* **Val AUROC:** **0.5794** ± **0.0261**
+* **Val F1-Score:** **0.5759** ± **0.0421**
 * **Random Chance:** **50.00%**
 
 ### Binary: Interpretations & Key Takeaways
 
-* **The "Subject-Variability Wall":** A linear probe trained on 71 subjects and tested on 8 unseen subjects achieves an accuracy of ~**56.25%**. While this is statistically above random chance (**50%**), it is practically very low. This mathematically proves that out-of-the-box, frozen REVE embeddings are heavily entangled. The latent space is likely clustered by subject-specific anatomical traits (like skull thickness or baseline impedance) rather than universal emotional valence.
-* **Consistency:** The standard deviation across the 10 folds is incredibly tight (± **1.56%**). This means the model isn't getting "lucky" or "unlucky" data splits. The **56%** accuracy limit is a hard, structural limitation of a linear hyperplane trying to separate entangled cross-subject data.
+* **The "Subject-Variability Wall":** A linear probe trained on 71 subjects and tested on 8 unseen subjects achieves an accuracy of ~**56.35%**. While this is statistically above random chance (**50%**), it is practically very low. This mathematically proves that out-of-the-box, frozen REVE embeddings are heavily entangled. The latent space is likely clustered by subject-specific anatomical traits (like skull thickness or baseline impedance) rather than universal emotional valence.
+* **Consistency:** The standard deviation across the 10 folds is incredibly tight (± **1.54%**). This means the model isn't getting "lucky" or "unlucky" data splits. The **56%** accuracy limit is a hard, structural limitation of a linear hyperplane trying to separate entangled cross-subject data.
 * **Balanced Failure:** The F1-Score (**0.57**) closely mirrors the Accuracy and AUROC. This indicates the linear classifier isn't just collapsing and guessing "Positive" for every window; it is genuinely trying to separate the classes but failing due to the non-linear complexity of the inter-subject data.
 
 ---

@@ -24,7 +24,7 @@ import torchmetrics
 from transformers import AutoModel
 
 from src.thu_ep.config import THUEPConfig
-from src.linear_probing.dataset import THUEPWindowDataset
+from src.thu_ep.dataset import THUEPWindowDataset
 
 
 # EmbeddingExtractor
@@ -71,7 +71,7 @@ class EmbeddingExtractor:
         self.reve.eval()
         self.reve.to(self.device)
 
-        # Freeze all REVE parameters — we only use it as a feature extractor.
+        # Freeze all REVE parameters to only use it as a feature extractor
         for param in self.reve.parameters():
             param.requires_grad_(False)
 
@@ -84,9 +84,9 @@ class EmbeddingExtractor:
         self.pos_bank.eval()
         self.pos_bank.to(self.device)
 
-        # Pre-compute electrode positions once using the 30 final channel names.
-        # pos_bank(channel_names) → Tensor of shape (30, 3).
-        # We cache this and only expand to (B, 30, 3) at inference time.
+        # Pre-compute electrode positions once using the 30 final channel names
+        # pos_bank(channel_names) -> Tensor of shape (30, 3)
+        # expand to (B, 30, 3) at inference time.
         channel_names: list[str] = config.final_channels  # 30 names, A1/A2 removed
         with torch.no_grad():
             self._pos_1d: Tensor = self.pos_bank(channel_names)  # (30, 3)
@@ -198,7 +198,7 @@ class LinearProber(L.LightningModule):
         self.num_classes = num_classes
         self.lr = lr
 
-        # linear probe — the only trainable component
+        # LINEAR PROBE, the only trainable component
         self.classifier = nn.Linear(embed_dim, num_classes)
 
         # Metrics (separate instances for train vs val to avoid state mixing)
@@ -208,7 +208,7 @@ class LinearProber(L.LightningModule):
         self.train_acc = torchmetrics.Accuracy(**metric_kwargs)
         self.val_acc   = torchmetrics.Accuracy(**metric_kwargs)
 
-        # AUROC needs probability inputs (softmax), not raw logits.
+        # AUROC needs probability inputs (softmax), not raw logits
         auroc_kwargs = dict(task=task, num_classes=num_classes, average="macro")
         self.train_auroc = torchmetrics.AUROC(**auroc_kwargs)
         self.val_auroc   = torchmetrics.AUROC(**auroc_kwargs)

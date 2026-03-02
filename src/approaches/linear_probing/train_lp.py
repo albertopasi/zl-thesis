@@ -1,9 +1,9 @@
 """
-train_lp.py — Main execution script for the Linear Probing (LP) dry run.
+train_lp.py — Main execution script for the Linear Probing (LP) run.
 
 Workflow
 --------
-1. Build subject list (79 subjects; subject 75 excluded).
+1. Build subject list (79 subjects).
 2. Pre-compute REVE embeddings ONCE per subject (skipped if already cached).
    Stored as: data/thu ep/embeddings/{task_mode}/sub_XX.pt
    Each file contains the 512-D embeddings for ALL valid windows of that subject.
@@ -16,13 +16,17 @@ Workflow
 
 Run with:
     # Binary, all folds (default)
-    uv run python -m src.linear_probing.train_lp --task binary
+    uv run python -m src.approaches.linear_probing.train_lp --task binary
 
     # 9-class, all folds
-    uv run python -m src.linear_probing.train_lp --task 9-class
+    uv run python -m src.approaches.linear_probing.train_lp --task 9-class
 
     # Dry run: binary, fold 1 only
-    uv run python -m src.linear_probing.train_lp --task binary --fold 1
+    uv run python -m src.approaches.linear_probing.train_lp --task binary --fold 1
+
+    # Specify window size and stride
+    uv run python -m src.approaches.linear_probing.train_lp --window 8 --stride 4   # default
+
 """
 
 from __future__ import annotations
@@ -37,30 +41,27 @@ import sys
 import time
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import torch
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.model_selection import KFold
 import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
 import wandb
 
 from src.thu_ep.config import THUEPConfig
-from src.linear_probing.dataset import EXCLUDED_SUBJECTS, THUEPWindowDataset
-from src.linear_probing.model import EmbeddingExtractor, LinearProber
+from src.thu_ep.dataset import EXCLUDED_SUBJECTS, THUEPWindowDataset
+from src.thu_ep.folds import get_all_subjects, get_kfold_splits, N_FOLDS
+from src.approaches.linear_probing.model import EmbeddingExtractor, LinearProber
 
 
-# =============================================================================
-# Configuration — edit these to change behaviour
-# =============================================================================
+# Configuration
 
 TASK_MODE    = "binary"   # 'binary' or '9-class'
-N_FOLDS      = 10
-MAX_EPOCHS   = 50
+MAX_EPOCHS   = 80
 BATCH_SIZE   = 64
 LR           = 1e-3
 EMBED_DIM    = 512
@@ -76,13 +77,13 @@ REVE_POS_PATH   = PROJECT_ROOT / "models" / "reve_pretrained_original" / "reve-p
 OUTPUT_DIR      = PROJECT_ROOT / "outputs" / "lp_checkpoints"
 
 # W&B — set USE_WANDB=False to skip W&B and log to CSV only.
-# If your account belongs to a team, set WANDB_ENTITY to the team name
-# (find it at wandb.ai/settings). Personal entities may be disabled by the org.
 USE_WANDB     = True
 WANDB_PROJECT = "eeg-lp-thu-ep"
 WANDB_ENTITY  = "zl-tudelft-thesis"   # e.g. "my-team". None = W&B picks the default entity.
 
-# Window parameters
+
+# Window parameters (timepoints = seconds × SAMPLING_RATE)
+SAMPLING_RATE = 200  # Hz
 WINDOW_SIZE = 1600   # 8 s at 200 Hz
 STRIDE      = 800    # 4 s at 200 Hz
 
@@ -91,9 +92,7 @@ ACCELERATOR = "gpu"  if torch.cuda.is_available() else "cpu"
 NUM_WORKERS = 0 if sys.platform == "win32" else 4
 
 
-# =============================================================================
 # Terminal output helpers
-# =============================================================================
 
 _COL_W = 90
 _SEP   = "─" * _COL_W
@@ -128,10 +127,7 @@ def _fmt(val: float, width: int = 8, decimals: int = 4) -> str:
     return f"{val:>{width}.{decimals}f}"
 
 
-# =============================================================================
 # EpochSummaryCallback
-# =============================================================================
-
 class EpochSummaryCallback(L.Callback):
     """
     Prints a per-epoch metrics table to the terminal and saves a results JSON
@@ -254,10 +250,7 @@ class EpochSummaryCallback(L.Callback):
         print(f"Results JSON saved → {json_path}")
 
 
-# =============================================================================
 # Cross-fold summary
-# =============================================================================
-
 def _print_fold_summary(fold_results: list[dict]) -> None:
     """
     Print a per-fold metrics table and mean ± std across all completed folds.
@@ -330,13 +323,11 @@ def _print_fold_summary(fold_results: list[dict]) -> None:
     print(f"Aggregate results saved → {agg_path}")
 
 
-# =============================================================================
 # Per-subject embedding cache helpers
-# =============================================================================
 
 def subject_cache_path(subject_id: int, task_mode: str) -> Path:
     """Return the path for a single subject's pre-computed embedding file."""
-    return EMBEDDINGS_DIR / task_mode / f"sub_{subject_id:02d}.pt"
+    return EMBEDDINGS_DIR / task_mode / f"ws{WINDOW_SIZE}_st{STRIDE}" / f"sub_{subject_id:02d}.pt"
 
 
 def precompute_all_subjects(
@@ -347,7 +338,7 @@ def precompute_all_subjects(
     Pre-compute REVE embeddings for every subject that is not yet cached.
 
     Embeddings are stored per-subject at:
-        EMBEDDINGS_DIR / task_mode / sub_XX.pt
+        EMBEDDINGS_DIR / task_mode / ws{WINDOW_SIZE}_st{STRIDE} / sub_XX.pt
 
     This function is called once before any fold loop. Subsequent fold runs
     simply concatenate the already-saved per-subject tensors — no REVE re-runs.
@@ -437,9 +428,7 @@ def load_subjects_embeddings(
     return torch.cat(all_embs, dim=0), torch.cat(all_labels, dim=0)
 
 
-# =============================================================================
 # run_fold
-# =============================================================================
 
 def run_fold(
     fold_idx: int,
@@ -461,9 +450,7 @@ def run_fold(
     )
     print(f"{'#' * _COL_W}")
 
-    # ------------------------------------------------------------------
     # Load pre-computed embeddings from per-subject cache files
-    # ------------------------------------------------------------------
     t_load = time.time()
     print("Loading embeddings from cache …", end="  ", flush=True)
     train_embs, train_lbls = load_subjects_embeddings(train_subject_ids, TASK_MODE)
@@ -473,9 +460,7 @@ def run_fold(
         f"(train={train_embs.shape[0]:,}  val={val_embs.shape[0]:,})"
     )
 
-    # ------------------------------------------------------------------
     # Build DataLoaders directly from tensors (no disk I/O during training)
-    # ------------------------------------------------------------------
     train_loader = DataLoader(
         TensorDataset(train_embs, train_lbls),
         batch_size=BATCH_SIZE,
@@ -489,9 +474,7 @@ def run_fold(
         num_workers=NUM_WORKERS,
     )
 
-    # ------------------------------------------------------------------
     # Model, logger, callbacks
-    # ------------------------------------------------------------------
     num_classes = 2 if TASK_MODE == "binary" else 9
     model = LinearProber(num_classes=num_classes, embed_dim=EMBED_DIM, lr=LR)
 
@@ -515,14 +498,12 @@ def run_fold(
     }
 
     # Build logger: W&B if enabled, otherwise fall back to CSV.
-    # If your W&B org has personal entities disabled, set WANDB_ENTITY to your
-    # team name (found at wandb.ai/settings), or set USE_WANDB=False.
     if USE_WANDB:
         logger = WandbLogger(
             project=WANDB_PROJECT,
             entity=WANDB_ENTITY,
             name=run_name,
-            group=f"lp_{TASK_MODE}",         # groups all folds → overlaid graphs + mean±std band
+            group=f"lp_{TASK_MODE}",
             config=hparams,
             log_model=False,
             reinit=True,    # allow multiple runs in the same process (one per fold)
@@ -568,9 +549,8 @@ def run_fold(
         enable_model_summary=True,
     )
 
-    # ------------------------------------------------------------------
     # Train
-    # ------------------------------------------------------------------
+
     try:
         trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
     finally:
@@ -582,9 +562,8 @@ def run_fold(
         if USE_WANDB:
             wandb.finish()
 
-    # ------------------------------------------------------------------
     # Save best classifier weights
-    # ------------------------------------------------------------------
+
     best_ckpt = checkpoint_cb.best_model_path
     if best_ckpt:
         best_model = LinearProber.load_from_checkpoint(best_ckpt)
@@ -611,12 +590,8 @@ def run_fold(
     }
 
 
-# =============================================================================
-# Entry point
-# =============================================================================
-
 def main() -> None:
-    global TASK_MODE, DRY_RUN_FOLD
+    global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE
 
     parser = argparse.ArgumentParser(description="Linear Probing on THU-EP with REVE embeddings")
     parser.add_argument(
@@ -627,28 +602,37 @@ def main() -> None:
         "--fold", type=int, default=DRY_RUN_FOLD, metavar="N",
         help="Run only this fold index (1-10). Omit to run all folds.",
     )
+    parser.add_argument(
+        "--window", type=float, default=WINDOW_SIZE / SAMPLING_RATE, metavar="S",
+        help="Window length in seconds (default: %(default)s s).",
+    )
+    parser.add_argument(
+        "--stride", type=float, default=STRIDE / SAMPLING_RATE, metavar="S",
+        help="Stride between windows in seconds (default: %(default)s s).",
+    )
     args = parser.parse_args()
-    TASK_MODE     = args.task
-    DRY_RUN_FOLD  = args.fold
+    TASK_MODE    = args.task
+    DRY_RUN_FOLD = args.fold
+    WINDOW_SIZE  = round(args.window * SAMPLING_RATE)
+    STRIDE       = round(args.stride * SAMPLING_RATE)
 
     L.seed_everything(42, workers=True)
 
     config = THUEPConfig()
-    all_subjects = [sid for sid in range(1, 81) if sid not in EXCLUDED_SUBJECTS]
+    all_subjects = get_all_subjects()
 
     print(f"\nTotal valid subjects: {len(all_subjects)}  (excluded: {EXCLUDED_SUBJECTS})")
-    print(f"Device: {DEVICE}  |  task_mode: {TASK_MODE}  |  dry_run_fold: {DRY_RUN_FOLD}")
+    print(
+        f"Device: {DEVICE}  |  task_mode: {TASK_MODE}  |  dry_run_fold: {DRY_RUN_FOLD}  |  "
+        f"window: {WINDOW_SIZE/SAMPLING_RATE}s ({WINDOW_SIZE} pts)  "
+        f"stride: {STRIDE/SAMPLING_RATE}s ({STRIDE} pts)"
+    )
 
-    # ------------------------------------------------------------------
     # Step 1: Pre-compute ONCE per subject (skips subjects already cached)
-    # ------------------------------------------------------------------
     precompute_all_subjects(all_subjects, config)
 
-    # ------------------------------------------------------------------
     # Step 2: 10-fold cross-subject split
-    # ------------------------------------------------------------------
-    kfold = KFold(n_splits=N_FOLDS, shuffle=True, random_state=42)
-    folds = list(kfold.split(all_subjects))
+    folds = get_kfold_splits(all_subjects)
 
     folds_to_run = (
         [(DRY_RUN_FOLD, folds[DRY_RUN_FOLD - 1])]
@@ -656,9 +640,7 @@ def main() -> None:
         else [(i + 1, folds[i]) for i in range(N_FOLDS)]
     )
 
-    # ------------------------------------------------------------------
     # Step 3: Train fold(s) — collect per-fold metrics for final summary
-    # ------------------------------------------------------------------
     fold_results: list[dict] = []
     for fold_idx, (train_idx, val_idx) in folds_to_run:
         train_subjects = [all_subjects[i] for i in train_idx]

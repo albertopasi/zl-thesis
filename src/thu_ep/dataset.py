@@ -1,10 +1,12 @@
 """
-dataset.py — THU-EP Dataset and DataModule for Linear Probing.
+dataset.py — Shared THU-EP dataset utilities.
 
-Provides:
-  - THUEPWindowDataset: raw EEG sliding-window dataset loaded entirely into RAM.
-  - EmbeddedDataset: thin wrapper over pre-computed 512-D REVE embedding tensors.
-  - THUEPDataModule: Lightning DataModule that serves EmbeddedDataset splits.
+Provides constants and classes used across all approaches (linear probing,
+LoRA fine-tuning, contrastive learning, etc.):
+  - EXCLUDED_SUBJECTS: corrupted subject IDs to skip.
+  - EXCLUDED_STIMULI: per-subject corrupted stimulus indices.
+  - _build_stimulus_label_map: maps stimulus index → class label.
+  - THUEPWindowDataset: raw EEG sliding-window dataset loaded into RAM.
 """
 
 from __future__ import annotations
@@ -15,13 +17,10 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 from torch import Tensor
-from torch.utils.data import DataLoader, Dataset
-import lightning as L
+from torch.utils.data import Dataset
 
 
-# =============================================================================
 # Data-quality constants (corrupted recordings to exclude)
-# =============================================================================
 
 # Subject IDs (1-indexed, matching sub_XX.npy filenames) to skip entirely.
 EXCLUDED_SUBJECTS: set[int] = {75}
@@ -149,7 +148,6 @@ class THUEPWindowDataset(Dataset):
 
         # Build flat index of all valid (subject, stimulus, window_start)
         # n_windows = floor((n_timepoints - window_size) / stride) + 1
-        #           = floor((6000 - 1600) / 800) + 1 = 6
         n_timepoints = 6000
         n_windows = (n_timepoints - window_size) // stride + 1
 
@@ -192,95 +190,3 @@ class THUEPWindowDataset(Dataset):
         label = self._label_map[stim_idx]
 
         return eeg_tensor, label
-
-
-# EmbeddedDataset
-class EmbeddedDataset(Dataset):
-    """
-    Thin wrapper around a pre-computed embedding .pt file.
-
-    The file must be a dict with keys:
-        'embeddings': Tensor of shape (N, 512)
-        'labels':     Tensor of shape (N,) with integer class labels
-
-    Args:
-        embeddings_path: Path to the .pt file produced by EmbeddingExtractor.
-    """
-
-    def __init__(self, embeddings_path: Path) -> None:
-        super().__init__()
-        embeddings_path = Path(embeddings_path)
-        if not embeddings_path.exists():
-            raise FileNotFoundError(f"Embeddings file not found: {embeddings_path}")
-
-        payload = torch.load(embeddings_path, map_location="cpu", weights_only=True)
-        self.embeddings: Tensor = payload["embeddings"]  # (N, 512)
-        self.labels: Tensor = payload["labels"]          # (N,)
-
-        assert self.embeddings.shape[0] == self.labels.shape[0], (
-            "Mismatch between number of embeddings and labels."
-        )
-
-    def __len__(self) -> int:
-        return self.embeddings.shape[0]
-
-    def __getitem__(self, idx: int) -> Tuple[Tensor, Tensor]:
-        return self.embeddings[idx], self.labels[idx]
-
-
-# THUEPDataModule
-class THUEPDataModule(L.LightningDataModule):
-    """
-    Lightning DataModule for the LP training loop.
-
-    Expects pre-computed embedding files at:
-        embeddings_dir / task_mode / f"fold_{fold_idx}" / "train.pt"
-        embeddings_dir / task_mode / f"fold_{fold_idx}" / "val.pt"
-
-    Args:
-        train_embeddings_path: Path to training embeddings .pt file.
-        val_embeddings_path:   Path to validation embeddings .pt file.
-        batch_size:            Mini-batch size (default 64).
-        num_workers:           DataLoader worker processes (default 4).
-    """
-
-    def __init__(
-        self,
-        train_embeddings_path: Path,
-        val_embeddings_path: Path,
-        batch_size: int = 64,
-        num_workers: int = 4,
-    ) -> None:
-        super().__init__()
-        self.train_embeddings_path = Path(train_embeddings_path)
-        self.val_embeddings_path = Path(val_embeddings_path)
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-
-        self._train_dataset: Optional[EmbeddedDataset] = None
-        self._val_dataset: Optional[EmbeddedDataset] = None
-
-    def setup(self, stage: Optional[str] = None) -> None:
-        """Load embedding datasets from disk."""
-        self._train_dataset = EmbeddedDataset(self.train_embeddings_path)
-        self._val_dataset = EmbeddedDataset(self.val_embeddings_path)
-
-    def train_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self._train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=self.num_workers > 0,
-        )
-
-    def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self._val_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=self.num_workers > 0,
-        )
