@@ -4,8 +4,10 @@ data/*
 output
 output200
 output250
+outputs/*
 .venv
 models/*
 thesis_plan.pdf
 .pytest_cache
 debug_output
+wandb/
