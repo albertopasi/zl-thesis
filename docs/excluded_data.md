@@ -1,4 +1,4 @@
-### 3.X Manual Artifact Rejection and Data Exclusion
+# Manual Artifact Rejection and Data Exclusion
 
 Before and after the preprocessing pipeline, a visual inspection of every individual EEG trial was conducted to identify severe, unrecoverable technical anomalies. Data exhibiting extreme signal degradation that could not be safely corrected via standard spatial or temporal filtering was strictly excluded to prevent the introduction of corrupt gradients during foundation model training.
 
