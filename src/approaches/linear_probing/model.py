@@ -191,12 +191,14 @@ class LinearProber(L.LightningModule):
         num_classes: int,
         embed_dim: int = 512,
         lr: float = 1e-3,
+        normalize_features: bool = False,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
 
         self.num_classes = num_classes
         self.lr = lr
+        self.normalize_features = normalize_features
 
         # LINEAR PROBE, the only trainable component
         self.classifier = nn.Linear(embed_dim, num_classes)
@@ -219,6 +221,8 @@ class LinearProber(L.LightningModule):
     # Forward
     def forward(self, x: Tensor) -> Tensor:
         """x: (B, 512) → logits: (B, num_classes)"""
+        if self.normalize_features:
+            x = F.normalize(x, dim=-1)
         return self.classifier(x)
 
     # Training / Validation steps

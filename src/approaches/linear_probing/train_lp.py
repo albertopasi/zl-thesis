@@ -60,11 +60,12 @@ from src.approaches.linear_probing.model import EmbeddingExtractor, LinearProber
 
 # Configuration
 
-TASK_MODE    = "binary"   # 'binary' or '9-class'
-MAX_EPOCHS   = 80
-BATCH_SIZE   = 64
-LR           = 1e-3
-EMBED_DIM    = 512
+TASK_MODE          = "binary"   # 'binary' or '9-class'
+NORMALIZE_FEATURES = False      # L2-normalize embeddings before the linear classifier
+MAX_EPOCHS         = 80
+BATCH_SIZE         = 64
+LR                 = 1e-3
+EMBED_DIM          = 512
 
 # Only fold 1 is run as a dry run; set to None to run all folds.
 DRY_RUN_FOLD = None
@@ -302,7 +303,8 @@ def _print_fold_summary(fold_results: list[dict]) -> None:
     # Save aggregate JSON
     w_s  = round(WINDOW_SIZE / SAMPLING_RATE)
     st_s = round(STRIDE / SAMPLING_RATE)
-    agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}_w{w_s}s{st_s}.json"
+    norm_tag = "_norm" if NORMALIZE_FEATURES else ""
+    agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}_w{w_s}s{st_s}{norm_tag}.json"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     agg = {
         "task_mode":    TASK_MODE,
@@ -478,11 +480,13 @@ def run_fold(
 
     # Model, logger, callbacks
     num_classes = 2 if TASK_MODE == "binary" else 9
-    model = LinearProber(num_classes=num_classes, embed_dim=EMBED_DIM, lr=LR)
+    model = LinearProber(num_classes=num_classes, embed_dim=EMBED_DIM, lr=LR,
+                         normalize_features=NORMALIZE_FEATURES)
 
     w_s = round(WINDOW_SIZE / SAMPLING_RATE)
     st_s = round(STRIDE / SAMPLING_RATE)
-    run_name = f"lp_{TASK_MODE}_w{w_s}s{st_s}_fold_{fold_idx}"
+    norm_tag = "_norm" if NORMALIZE_FEATURES else ""
+    run_name = f"lp_{TASK_MODE}_w{w_s}s{st_s}{norm_tag}_fold_{fold_idx}"
     ckpt_dir = OUTPUT_DIR / run_name
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -495,10 +499,11 @@ def run_fold(
         "max_epochs":       MAX_EPOCHS,
         "window_size":      WINDOW_SIZE,
         "stride":           STRIDE,
-        "n_train_subjects": len(train_subject_ids),
-        "n_val_subjects":   len(val_subject_ids),
-        "n_train_windows":  int(train_embs.shape[0]),
-        "n_val_windows":    int(val_embs.shape[0]),
+        "n_train_subjects":  len(train_subject_ids),
+        "n_val_subjects":    len(val_subject_ids),
+        "n_train_windows":   int(train_embs.shape[0]),
+        "n_val_windows":     int(val_embs.shape[0]),
+        "normalize_features": NORMALIZE_FEATURES,
     }
 
     # Build logger: W&B if enabled, otherwise fall back to CSV.
@@ -507,7 +512,7 @@ def run_fold(
             project=WANDB_PROJECT,
             entity=WANDB_ENTITY,
             name=run_name,
-            group=f"lp_{TASK_MODE}_w{w_s}s{st_s}",
+            group=f"lp_{TASK_MODE}_w{w_s}s{st_s}{norm_tag}",
             config=hparams,
             log_model=False,
             reinit=True,    # allow multiple runs in the same process (one per fold)
@@ -595,7 +600,7 @@ def run_fold(
 
 
 def main() -> None:
-    global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE
+    global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE, NORMALIZE_FEATURES
 
     parser = argparse.ArgumentParser(description="Linear Probing on THU-EP with REVE embeddings")
     parser.add_argument(
@@ -614,11 +619,16 @@ def main() -> None:
         "--stride", type=float, default=STRIDE / SAMPLING_RATE, metavar="S",
         help="Stride between windows in seconds (default: %(default)s s).",
     )
+    parser.add_argument(
+        "--normalize", action="store_true", default=False,
+        help="Apply L2 feature normalization before the linear classifier.",
+    )
     args = parser.parse_args()
-    TASK_MODE    = args.task
-    DRY_RUN_FOLD = args.fold
-    WINDOW_SIZE  = round(args.window * SAMPLING_RATE)
-    STRIDE       = round(args.stride * SAMPLING_RATE)
+    TASK_MODE          = args.task
+    DRY_RUN_FOLD       = args.fold
+    WINDOW_SIZE        = round(args.window * SAMPLING_RATE)
+    STRIDE             = round(args.stride * SAMPLING_RATE)
+    NORMALIZE_FEATURES = args.normalize
 
     L.seed_everything(42, workers=True)
 

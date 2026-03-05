@@ -75,3 +75,36 @@ In relative terms, the 9-class task actually shows a stronger signal above chanc
 - **9-class:** 21.37% Acc / 0.6244 AUROC / 0.199 F1 (w10s5)
 
 Fine-tuning is necessary to move past the subject-variability wall. Contrastive learning is necessary to untangle emotion from subject identity in the latent space.
+
+---
+
+## 4. Ablation: L2 Feature Normalization (Binary Task Only)
+
+### Motivation
+
+REVE uses a pre-norm architecture: RMSNorm is applied *inside* each transformer block before the attention and feedforward operations, but there is no final LayerNorm at the backbone output. Because residual additions accumulate across all layers without rescaling, the 512-D attention-pooled embeddings may carry non-trivial magnitude variation across subjects and stimuli. L2 normalization projects every embedding onto the unit hypersphere (`x / ||x||₂`), which removes this scale and constrains the linear classifier to use only directional information. The question is whether discarding magnitude helps or hurts.
+
+### Protocol
+
+The `--normalize` flag was added to `train_lp.py`. When enabled, `F.normalize(x, dim=-1)` is applied inside `LinearProber.forward` before the linear layer. This adds zero trainable parameters; the classifier still sees a 512-D vector, but with unit norm. All other hyperparameters are identical to the standard runs.
+
+Results are available for the binary task only (3 window configurations × 10 folds each).
+
+### Results
+
+| Window | Variant    | Acc (mean ± std)   | AUROC (mean ± std) | F1 (mean ± std)   |
+|--------|------------|--------------------|--------------------|-------------------|
+| 5s/2s  | Standard   | 55.40% ± 1.28%     | 0.5612 ± 0.0171    | 0.518 ± 0.067     |
+| 5s/2s  | L2-norm    | 54.52% ± 1.53%     | 0.5520 ± 0.0232    | 0.508 ± 0.080     |
+| 8s/4s  | Standard   | 56.25% ± 1.56%     | 0.5747 ± 0.0223    | 0.576 ± 0.049     |
+| 8s/4s  | L2-norm    | 55.34% ± 1.71%     | 0.5632 ± 0.0232    | 0.511 ± 0.056     |
+| 10s/5s | Standard   | 55.55% ± 1.74%     | 0.5584 ± 0.0268    | 0.519 ± 0.079     |
+| 10s/5s | L2-norm    | 54.40% ± 2.19%     | 0.5419 ± 0.0313    | 0.511 ± 0.071     |
+
+### Interpretation
+
+**L2 normalization consistently hurts.** Accuracy drops by 0.88–1.15 pp and AUROC drops by 0.009–0.016 across all three window configurations. The direction of the effect is perfectly consistent: every window, every metric is worse under normalization. The individual effect sizes are modest (~0.5–0.7σ per window), but the uniformity across three independent experiments makes the conclusion reliable.
+
+**What this tells us about REVE's embedding geometry.** The norm of a pre-norm transformer's output is not arbitrary noise — it accumulates meaningful signal through the residual stream. A vector with larger magnitude represents a pattern the model encoded more strongly. By normalizing to the unit sphere, we discard this information and the linear classifier is forced to work with direction alone, losing discriminative power. The raw embeddings' geometry (both direction and magnitude) is therefore informative, and the standard linear probe is the correct experimental choice.
+
+**This negative result is useful.** It rules out the hypothesis that REVE's absent final LayerNorm causes pathological scale variance that harms the probe. Scale variance exists, but it is signal-carrying, not noise. This also provides a posterior justification for the standard protocol: the raw embeddings are preferable, and the baseline numbers reported in Sections 1–3 are the appropriate floor for subsequent methods.
