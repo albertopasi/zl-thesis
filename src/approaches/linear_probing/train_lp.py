@@ -300,7 +300,9 @@ def _print_fold_summary(fold_results: list[dict]) -> None:
     print(f"{'═' * _COL_W}")
 
     # Save aggregate JSON
-    agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}.json"
+    w_s  = round(WINDOW_SIZE / SAMPLING_RATE)
+    st_s = round(STRIDE / SAMPLING_RATE)
+    agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}_w{w_s}s{st_s}.json"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     agg = {
         "task_mode":    TASK_MODE,
@@ -478,7 +480,9 @@ def run_fold(
     num_classes = 2 if TASK_MODE == "binary" else 9
     model = LinearProber(num_classes=num_classes, embed_dim=EMBED_DIM, lr=LR)
 
-    run_name = f"lp_{TASK_MODE}_fold_{fold_idx}"
+    w_s = round(WINDOW_SIZE / SAMPLING_RATE)
+    st_s = round(STRIDE / SAMPLING_RATE)
+    run_name = f"lp_{TASK_MODE}_w{w_s}s{st_s}_fold_{fold_idx}"
     ckpt_dir = OUTPUT_DIR / run_name
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -503,7 +507,7 @@ def run_fold(
             project=WANDB_PROJECT,
             entity=WANDB_ENTITY,
             name=run_name,
-            group=f"lp_{TASK_MODE}",
+            group=f"lp_{TASK_MODE}_w{w_s}s{st_s}",
             config=hparams,
             log_model=False,
             reinit=True,    # allow multiple runs in the same process (one per fold)
