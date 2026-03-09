@@ -60,13 +60,15 @@ class ConvNet_baseNonlinearHead(nn.Module):
         # # self.bn2 = nn.BatchNorm2d(n_timeFilters * multiFact * multiFact)
         # self.n_spatialFilters = n_spatialFilters
         # self.n_timeFilters = n_timeFilters
-        # Spatial Convolution
-        self.spatialConv = nn.Conv2d(1, 16, (62, 1))
-        # Time Convolution
-        self.timeConv = nn.Conv2d(1, 16, (1, 48), padding=(0, 23))
-        # Frequency Convolution
-        self.frequencyConv = nn.Conv2d(16, 16, (1, 60), stride=(1, 11))  # Example filter size (1, 2)
-        self.avgpool = nn.MaxPool2d((1, 2))
+        # Spatial Convolution (THU-EP: 30 channels)
+        self.spatialConv = nn.Conv2d(1, 16, (30, 1))
+        # Time Convolution (THU-EP: filter size 60, padding 29 to preserve length)
+        self.timeConv = nn.Conv2d(1, 16, (1, 60), padding=(0, 29))
+        # Frequency Convolution (THU-EP: filter size 60, stride 5 to avoid collapse at 1250 time steps)
+        # stride=5: floor((1249-60)/5)+1=238 → AvgPool(30)→7 → sufficient for downstream kernels
+        self.frequencyConv = nn.Conv2d(16, 16, (1, 60), stride=(1, 5))
+        # Average pooling (THU-EP: pool length 30)
+        self.avgpool = nn.AvgPool2d((1, 30))
         self.spatialConv2 = nn.Conv2d(16, 32, (16, 1))
         self.timeConv2 = nn.Conv2d(32, 64, (1, 4))
         self.frequencyConv2 = nn.Conv2d(64, 64, (1, 3))

@@ -27,7 +27,8 @@ parser.add_argument('--max-tol-pretrain', default=30, type=int, metavar='N', hel
 parser.add_argument('--n-views', default=2, type=int, metavar='N', help=' n views in contrastive learning')
 parser.add_argument('--batch-size-pretrain', default=15, type=int, metavar='N', help='mini-batch size')
 parser.add_argument('--learning-rate', default=0.0005, type=float, metavar='LR', help='learning rate')
-parser.add_argument('--weight-decay', default=0.015, type=float, metavar='W', help='weight decay (default: 0.05)', dest='weight_decay')
+# Paper CV candidates: {0.005, 0.011, 0.025, 0.056, 0.125}; 0.025 used as default (verify against paper results)
+parser.add_argument('--weight-decay', default=0.025, type=float, metavar='W', help='weight decay for MLP classifier', dest='weight_decay')
 parser.add_argument('--temperature', default=0.07, type=float, help='softmax temperature (default: 0.07)')
 parser.add_argument('--n-times', default=1, type=int, help='number of sampling times for one sub pair (in one session)')
 parser.add_argument('--fp16-precision', action='store_true', help='Whether or not to use 16-bit precision GPU training.')
@@ -35,11 +36,11 @@ parser.add_argument('--fp16-precision', action='store_true', help='Whether or no
 parser.add_argument('--use-data', default='raw', type=str, help='use what kind of input data')
 parser.add_argument('--sample-method', default='cross', type=str, help='how to sample pretrain data')
 parser.add_argument('--tuneMode', default='linear', type=str, help='how to finetune the parameters')
-parser.add_argument('--hidden-dim', default=32, type=int, help='number of hidden units')
+parser.add_argument('--hidden-dim', default=30, type=int, help='number of hidden units')  # paper: 30
 parser.add_argument('--timeLen-pretrain', default=5, type=int, help='time length in seconds of pretraining')
 parser.add_argument('--randSeed', default=42, type=int, help='random seed')
 
-parser.add_argument('--n-vids', default=15, type=int, help='use how many videos')
+parser.add_argument('--n-vids', default=28, type=int, help='use how many videos')  # THU-EP: 28
 parser.add_argument('--timeFilterLen', default=60, type=int, help='time filter length')
 parser.add_argument('--n_spatialFilters', default=16, type=int, help='time filter length')
 parser.add_argument('--n_timeFilters', default=16, type=int, help='time filter length')
@@ -71,8 +72,8 @@ print('stratified', stratified)
 print('channel norm', channel_norm)
 
 hidden_dim = args.hidden_dim
-fs = 200
-n_points = 6000
+fs = 250        # THU-EP: 250 Hz
+n_points = 7500  # THU-EP: 30s × 250Hz = 7500 timepoints/trial
 timeLen = 2
 timeStep = 1
 filtLen = 1
@@ -96,8 +97,8 @@ elif label_type == 2:
 elif label_type == 3:
     label_type = 'cls3'
 
-n_subs = 15
-n_folds = 5
+n_subs = 79  # THU-EP: 79 subjects (sub_75 excluded; see docs/excluded_data.md)
+n_folds = 10  # THU-EP: 10-fold cross-subject CV (paper Table 2)
 n_per = round(n_subs / n_folds)
 
 val_method = args.val_method
@@ -237,7 +238,7 @@ if finetune:
                     para_num = sum([p.data.nelement() for p in model.parameters()])
                     print('Total number of parameters:', para_num)
 
-                    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate_finetune, weight_decay=0.05)
+                    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate_finetune, weight_decay=args.weight_decay)
 
                     print('save_dir_ft: ', save_dir_ft)
 

@@ -20,7 +20,7 @@ parser.add_argument('--batch-size-finetune', default=270, type=int, metavar='N',
 parser.add_argument('--learning-rate-finetune', default=0.0005, type=float, metavar='LR', help='learning rate in finetuning')
 parser.add_argument('--gpu-index', default=0, type=int, help='Gpu index.')
 
-parser.add_argument('--epochs-pretrain', default=80, type=int, metavar='N', help='number of total epochs to runn pretraining')
+parser.add_argument('--epochs-pretrain', default=100, type=int, metavar='N', help='number of total epochs to runn pretraining')
 parser.add_argument('--restart_times', default=3, type=int, metavar='N', help='number of total epochs to run in pretraining')
 parser.add_argument('--max-tol-pretrain', default=30, type=int, metavar='N', help='number of max tolerence for epochs with no val loss decrease in pretraining')
 parser.add_argument('--n-views', default=2, type=int, metavar='N', help=' n views in contrastive learning')
@@ -84,8 +84,8 @@ timeFilterLen = args.timeFilterLen
 multiFact = 2
 hidden_dim = args.hidden_dim
 out_dim = 30
-n_channs = 62
-fs = 200
+n_channs = 30   # THU-EP: 30 channels (32 minus 2 mastoid refs)
+fs = 250        # THU-EP: 250 Hz sampling rate
 
 # The current method only supports timeLen and timeStep that can 整除. So timeStep would be better 1.
 timeLen = args.timeLen
@@ -102,11 +102,11 @@ print('data.shape:{}\tlen(label_repeat):{}'.format(data.shape, len(label_repeat)
 
 dataset = args.dataset
 
-n_subs = 15
+n_subs = data.shape[0]  # THU-EP: 79 (sub_75 excluded; see docs/excluded_data.md)
 
 print('n_subs ', n_subs)
 
-n_folds = 5
+n_folds = 10  # THU-EP: 10-fold cross-subject CV (paper Table 2)
 print('n_folds ', n_folds)
 
 # Here I only select 10-fold for k-fold
@@ -122,13 +122,13 @@ print('n_per ', n_per)
 
 if label_type == 'cls2':
     args.log_dir = 'raw_fold%d_cls2' % n_folds
-    args.batch_size_pretrain = 15
+    args.batch_size_pretrain = 24  # THU-EP cls2: 24 videos (12 neg + 12 pos); 1 window/video keeps TrainSampler within n_segs=13
 elif label_type == 'cls3':
     args.log_dir = 'raw_fold%d_cls3' % n_folds
-    args.batch_size_pretrain = 15
+    args.batch_size_pretrain = 28  # THU-EP: 28 videos
 else:
     args.log_dir = 'raw_fold%d_cls9' % n_folds
-    args.batch_size_pretrain = 15
+    args.batch_size_pretrain = 28  # THU-EP cls9: 28 videos; 1 window/video keeps TrainSampler within n_segs=13
 
 root_dir = '.'
 save_dir = os.path.join(root_dir, 'runs_srt', args.log_dir)

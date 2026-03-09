@@ -18,12 +18,13 @@ import random
 class ConvNet_baseNonlinearHead(nn.Module):
     def __init__(self, n_spatialFilters, n_timeFilters, timeFilterLen, n_channs, stratified, multiFact):
         super(ConvNet_baseNonlinearHead, self).__init__()
-        self.spatialConv = nn.Conv2d(1, 16, (62, 1))
-        # Time Convolution
-        self.timeConv = nn.Conv2d(1, 16, (1, 48), padding=(0, 23))
-        # Frequency Convolution
-        self.frequencyConv = nn.Conv2d(16, 16, (1, 60), stride=(1, 11))  # Example filter size (1, 2)
-        self.avgpool = nn.MaxPool2d((1, 2))
+        # THU-EP: 30 channels, 1250 time steps (5s @ 250Hz)
+        self.spatialConv = nn.Conv2d(1, 16, (30, 1))
+        # Time Convolution (filter 60, padding 29)
+        self.timeConv = nn.Conv2d(1, 16, (1, 60), padding=(0, 29))
+        # Frequency Convolution (stride 5 to avoid dimension collapse with 1250 time steps)
+        self.frequencyConv = nn.Conv2d(16, 16, (1, 60), stride=(1, 5))
+        self.avgpool = nn.AvgPool2d((1, 30))
         self.spatialConv2 = nn.Conv2d(16, 32, (16, 1))
         self.timeConv2 = nn.Conv2d(32, 64, (1, 4))
         self.frequencyConv2 = nn.Conv2d(64, 64, (1, 3))
@@ -106,11 +107,9 @@ elif label_type == 3:
 
 dataset = args.dataset
 
-n_subs = 15
-
 timeLen = 2
 timeStep = 1
-fs = 200
+fs = 250        # THU-EP: 250 Hz
 channel_norm = False
 time_norm = False
 data_len = fs * timeLen
@@ -118,13 +117,13 @@ data_len = fs * timeLen
 n_spatialFilters = args.n_spatialFilters
 n_timeFilters = args.n_timeFilters
 timeFilterLen = 60
-n_channs = 62
+n_channs = 30   # THU-EP: 30 channels
 multiFact = 2
 
 randomInit = False
 stratified = []
 
-n_folds = 5
+n_folds = 10  # THU-EP: 10-fold cross-subject CV
 
 data_dir = './runs_srt/'
 
@@ -141,6 +140,7 @@ if args.use_data == 'pretrained':
 print(save_dir)
 
 data, label_repeat, n_samples, n_segs = load_srt_raw_newPre(timeLen, timeStep, fs, channel_norm, time_norm, label_type)
+n_subs = data.shape[0]  # THU-EP: 79 (sub_75 excluded; see docs/excluded_data.md)
 torch.cuda.set_device(args.gpu_index)
 
 n_total = int(np.sum(n_samples))

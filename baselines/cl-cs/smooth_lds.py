@@ -49,7 +49,7 @@ parser.add_argument('--use-data', default='pretrained', type=str, help='what dat
 parser.add_argument('--n_spatialFilters', default=16, type=int, help='time filter length')
 parser.add_argument('--n_timeFilters', default=16, type=int, help='time filter length')
 parser.add_argument('--normTrain', default='yes', type=str, help='whether normTrain')
-parser.add_argument('--n-vids', default=15, type=int, help='use how many videos')
+parser.add_argument('--n-vids', default=28, type=int, help='use how many videos')  # THU-EP: 28
 parser.add_argument('--randSeed', default=7, type=int, help='random seed')
 parser.add_argument('--smooth-length', default=30, type=int, help='the length for lds smooth')
 parser.add_argument('--dataset', default='both', type=str, help='first or second')
@@ -74,7 +74,7 @@ elif label_type == 2:
 elif label_type == 3:
     label_type = 'cls3'
 
-n_folds = 5
+n_folds = 10  # THU-EP: 10-fold cross-subject CV
 
 data_dir = './runs_srt/'
 
@@ -85,11 +85,11 @@ elif label_type == 'cls3':
 else:
     save_dir = data_dir + 'raw_fold%d_cls9' % n_folds
 dataset = args.dataset
-n_subs = 15
+n_subs = 80   # THU-EP: 80 subjects
 timeLen = 2
 timeStep = 1
-n_points = 6000
-fs = 200
+n_points = 7500  # THU-EP: 30s × 250Hz = 7500
+fs = 250          # THU-EP: 250 Hz
 n_segs = int((n_points / fs - timeLen) / timeStep + 1)
 
 n_per = round(n_subs / n_folds)

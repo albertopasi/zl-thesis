@@ -27,16 +27,17 @@ label_type = args.cls
 
 if label_type == 9:
     label_type = 'cls9'
-    n_vids = 15
+    n_vids = 28  # THU-EP: 28 stimuli
 elif label_type == 5:
     label_type = 'cls5'
 elif label_type == 2:
     label_type = 'cls2'
+    n_vids = 24  # THU-EP cls2: 24 stimuli (neutral 12-15 dropped)
 elif label_type == 3:
     label_type = 'cls3'
-    n_vids = 15
+    n_vids = 28  # cls3 not applicable to THU-EP; kept as stub
 
-n_folds = 5
+n_folds = 10  # THU-EP: 10-fold cross-subject CV
 
 data_dir = './runs_srt/'
 if use_features == 'pretrained':
@@ -55,19 +56,19 @@ bn_val = 1
 
 timeLen = 2
 timeStep = 1
-n_points = 6000
-fs = 200
+n_points = 7500  # THU-EP: 30s × 250Hz = 7500 timepoints/trial
+fs = 250         # THU-EP: 250 Hz
 n_segs = int((n_points / fs - timeLen) / timeStep + 1)
 n_total = n_segs * n_vids
 n_counters = int(np.ceil(n_total / bn_val))
 print('n_total: ', n_total)
 print('n_counters: ', n_counters)
 dataset = args.dataset
-n_subs = 15
+n_subs = 79  # THU-EP: 79 subjects (sub_75 excluded; see docs/excluded_data.md)
 
 n_per = round(n_subs / n_folds)
 
-vid_order = video_order_load(args.dataset, 15, n_subs)
+vid_order = video_order_load(args.dataset, n_vids, n_subs)
 
 for decay_rate in [0.990]:
     print(decay_rate)

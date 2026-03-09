@@ -7,10 +7,11 @@ import copy
 
 
 def video_order_load(dataset, n_vids, n_subs):
+    # THU-EP: videos are stored in sequential order.
+    # Return 1-indexed sequential order; reorder_vids() converts to 0-indexed via tmp - 1.
     vid_orders = np.zeros((n_subs, n_vids))
     for idx in range(n_subs):
-        seq = list(np.array((11, 6, 1, 3, 7, 12, 4, 8, 13, 14, 9, 5, 10, 15, 2)) - 1)
-        # np.random.shuffle(seq)
+        seq = list(np.arange(1, n_vids + 1))  # [1, 2, ..., n_vids]
         vid_orders[idx, :] = seq
     print('vid_order: ', vid_orders)
     return vid_orders
