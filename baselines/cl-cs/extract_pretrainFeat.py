@@ -139,7 +139,8 @@ if args.use_data == 'pretrained':
         # save_dir = data_dir + 'runs_srt/raw_28video_batch28_dataset_both_timeLen5_tf16_sf16_multiFact2_lr0.000700_wd0.015000_epochs80_randSeed7_fold10_accSel_newPre_cls9'
 print(save_dir)
 
-data, label_repeat, n_samples, n_segs = load_srt_raw_newPre(timeLen, timeStep, fs, channel_norm, time_norm, label_type)
+data, label_repeat, n_samples = load_srt_raw_newPre(timeLen, timeStep, fs, channel_norm, time_norm, label_type)
+n_segs = int((7500 / fs - timeLen) / timeStep + 1)
 n_subs = data.shape[0]  # THU-EP: 79 (sub_75 excluded; see docs/excluded_data.md)
 torch.cuda.set_device(args.gpu_index)
 
