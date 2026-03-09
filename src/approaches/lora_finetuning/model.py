@@ -74,7 +74,7 @@ class REVELoRAModule(L.LightningModule):
         mixup_alpha: float = 0.0,
     ) -> None:
         super().__init__()
-        self.save_hyperparameters(ignore=["config"])
+        self.save_hyperparameters(ignore=["config", "reve_model_path", "reve_pos_path"])
 
         self.phase = 1
 
