@@ -97,8 +97,7 @@ data_len = fs * timeLen
 for pos in stratified:
     assert pos in ['initial', 'middle1', 'middle2', 'final', 'final_batch', 'middle1_batch', 'middle2_batch', 'no']
 
-data, label_repeat, n_samples = load_srt_raw_newPre(timeLen, timeStep, fs, channel_norm, time_norm, label_type)
-n_segs = int((fs * 30 - data_len) / (fs * timeStep) + 1)  # = 13 for timeLen=5, timeStep=2, fs=250
+data, label_repeat, n_samples, n_segs = load_srt_raw_newPre(timeLen, timeStep, fs, channel_norm, time_norm, label_type)
 print('data.shape:{}\tlen(label_repeat):{}'.format(data.shape, len(label_repeat)))
 
 dataset = args.dataset
