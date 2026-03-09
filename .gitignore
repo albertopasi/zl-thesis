@@ -11,3 +11,4 @@ thesis_plan.pdf
 .pytest_cache
 debug_output
 wandb/
+runs_srt/

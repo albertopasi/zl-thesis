@@ -26,6 +26,7 @@ dependencies = [
     "wandb",
     "packaging",
     "lightning>=2.6.1",
+    "tensorboard>=2.20.0",
 ]
 
 [project.optional-dependencies]
