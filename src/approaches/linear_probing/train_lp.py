@@ -35,7 +35,6 @@ import argparse
 import datetime
 import gc
 import json
-import math
 import statistics
 import sys
 import time
@@ -55,6 +54,7 @@ import wandb
 from src.thu_ep.config import THUEPConfig
 from src.thu_ep.dataset import EXCLUDED_SUBJECTS, THUEPWindowDataset
 from src.thu_ep.folds import get_all_subjects, get_kfold_splits, N_FOLDS
+from src.thu_ep.callbacks import EpochSummaryCallback, fmt_dur, fmt_metric, COL_W, SEP
 from src.approaches.linear_probing.model import EmbeddingExtractor, LinearProber
 
 
@@ -93,162 +93,11 @@ ACCELERATOR = "gpu"  if torch.cuda.is_available() else "cpu"
 NUM_WORKERS = 0 if sys.platform == "win32" else 4
 
 
-# Terminal output helpers
-
-_COL_W = 90
-_SEP   = "─" * _COL_W
-_HEADER = (
-    f"{'Epoch':>6}  {'EpTime':>7}  {'Elapsed':>8}  "
-    f"{'TrLoss':>8}  {'TrAcc':>7}  "
-    f"{'VaLoss':>8}  {'VaAcc':>7}  {'VaAUROC':>8}  {'VaF1':>7}"
-)
-
-
-def _fmt_dur(seconds: float) -> str:
-    h, rem = divmod(int(seconds), 3600)
-    m, s   = divmod(rem, 60)
-    if h > 0:
-        return f"{h}h{m:02d}m{s:02d}s"
-    if m > 0:
-        return f"{m}m{s:02d}s"
-    return f"{s}s"
-
-
-def _v(t) -> float:
-    if isinstance(t, torch.Tensor):
-        return float(t.item())
-    if t is None or (isinstance(t, float) and math.isnan(t)):
-        return float("nan")
-    return float(t)
-
-
-def _fmt(val: float, width: int = 8, decimals: int = 4) -> str:
-    if math.isnan(val):
-        return f"{'n/a':>{width}}"
-    return f"{val:>{width}.{decimals}f}"
-
-
-# EpochSummaryCallback
-class EpochSummaryCallback(L.Callback):
-    """
-    Prints a per-epoch metrics table to the terminal and saves a results JSON
-    at the end of training.
-    """
-
-    def __init__(
-        self,
-        output_dir: Path,
-        fold_idx: int,
-        task_mode: str,
-        train_subjects: list[int],
-        val_subjects: list[int],
-        hparams: dict,
-    ) -> None:
-        self.output_dir     = Path(output_dir)
-        self.fold_idx       = fold_idx
-        self.task_mode      = task_mode
-        self.train_subjects = train_subjects
-        self.val_subjects   = val_subjects
-        self.hparams        = hparams
-        self.epoch_history: list[dict] = []
-        self._fit_start:   float | None = None
-        self._epoch_start: float | None = None
-
-    def on_fit_start(self, trainer, pl_module) -> None:
-        self._fit_start = time.time()
-
-    def on_train_epoch_start(self, trainer, pl_module) -> None:
-        self._epoch_start = time.time()
-        # Print header after epoch 0 starts — this fires after the sanity-check
-        # warnings, so the header always appears directly above the first row.
-        if trainer.current_epoch == 0:
-            print(f"\n{_SEP}")
-            print(_HEADER)
-            print(_SEP)
-
-    def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        if trainer.sanity_checking:
-            return
-
-        epoch    = trainer.current_epoch + 1
-        m        = trainer.callback_metrics
-        ep_time  = time.time() - self._epoch_start
-        elapsed  = time.time() - self._fit_start
-
-        tr_loss  = _v(m.get("train/loss"))
-        tr_acc   = _v(m.get("train/acc"))
-        va_loss  = _v(m.get("val/loss"))
-        va_acc   = _v(m.get("val/acc"))
-        va_auroc = _v(m.get("val/auroc"))
-        va_f1    = _v(m.get("val/f1"))
-
-        avg_ep    = elapsed / epoch
-        remaining = avg_ep * (trainer.max_epochs - epoch)
-        eta_str   = f"ETA {_fmt_dur(remaining)}" if epoch < trainer.max_epochs else "done"
-
-        print(
-            f"{epoch:>6}  {_fmt_dur(ep_time):>7}  {_fmt_dur(elapsed):>8}  "
-            f"{_fmt(tr_loss):>8}  {_fmt(tr_acc):>7}  "
-            f"{_fmt(va_loss):>8}  {_fmt(va_acc):>7}  "
-            f"{_fmt(va_auroc):>8}  {_fmt(va_f1):>7}  ({eta_str})"
-        )
-
-        self.epoch_history.append({
-            "epoch":       epoch,
-            "epoch_time_s": round(ep_time, 2),
-            "train_loss":  None if math.isnan(tr_loss)  else round(tr_loss,  4),
-            "train_acc":   None if math.isnan(tr_acc)   else round(tr_acc,   4),
-            "val_loss":    None if math.isnan(va_loss)  else round(va_loss,  4),
-            "val_acc":     None if math.isnan(va_acc)   else round(va_acc,   4),
-            "val_auroc":   None if math.isnan(va_auroc) else round(va_auroc, 4),
-            "val_f1":      None if math.isnan(va_f1)    else round(va_f1,    4),
-        })
-
-    def on_fit_end(self, trainer, pl_module) -> None:
-        total_time = time.time() - self._fit_start
-        valid_rows = [r for r in self.epoch_history if r["val_acc"] is not None]
-
-        print(_SEP)
-        print(
-            f"Training complete — {len(self.epoch_history)} epochs  |  "
-            f"total time: {_fmt_dur(total_time)}"
-        )
-        if valid_rows:
-            best = max(valid_rows, key=lambda r: r["val_acc"])
-            print(
-                f"Best  epoch={best['epoch']:>3}  val_acc={best['val_acc']:.4f}  "
-                f"val_auroc={best['val_auroc']:.4f}  val_f1={best['val_f1']:.4f}"
-            )
-        print(_SEP)
-        self._save_results(total_time)
-
-    def _save_results(self, total_time: float) -> None:
-        valid_rows = [r for r in self.epoch_history if r["val_acc"] is not None]
-        best = max(valid_rows, key=lambda r: r["val_acc"]) if valid_rows else {}
-
-        results = {
-            "fold":          self.fold_idx,
-            "task_mode":     self.task_mode,
-            "completed_at":  datetime.datetime.now().isoformat(),
-            "hyperparams":   self.hparams,
-            "train_subjects": self.train_subjects,
-            "val_subjects":   self.val_subjects,
-            "best": {
-                "epoch":     best.get("epoch"),
-                "val_acc":   best.get("val_acc"),
-                "val_auroc": best.get("val_auroc"),
-                "val_f1":    best.get("val_f1"),
-            },
-            "total_time_s":   round(total_time, 2),
-            "epochs_trained": len(self.epoch_history),
-            "epoch_history":  self.epoch_history,
-        }
-
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        json_path = self.output_dir / "results.json"
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2)
-        print(f"Results JSON saved → {json_path}")
+# Aliases for backward-compatible references within this file.
+_fmt_dur = fmt_dur
+_fmt     = fmt_metric
+_COL_W   = COL_W
+_SEP     = SEP
 
 
 # Cross-fold summary
