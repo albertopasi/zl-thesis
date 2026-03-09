@@ -59,7 +59,7 @@ from src.approaches.lora_finetuning.model import REVELoRAModule
 TASK_MODE      = "binary"
 MAX_EPOCHS     = 80
 PHASE1_EPOCHS  = 10
-BATCH_SIZE     = 16
+BATCH_SIZE     = 64  # MODIFY BATCH SIZE
 LR_HEAD        = 1e-3
 LR_LORA        = 1e-4
 LORA_RANK      = 8
@@ -93,7 +93,7 @@ ACCELERATOR = "gpu"  if torch.cuda.is_available() else "cpu"
 NUM_WORKERS = 0 if sys.platform == "win32" else 4
 
 # Trainer knobs
-ACCUMULATE_GRAD_BATCHES = 4
+ACCUMULATE_GRAD_BATCHES = 1 # 4 # MODIFY ACCUMULATE FACTOR
 GRADIENT_CLIP_VAL       = 1.0
 PRECISION               = "16-mixed"
 
@@ -360,6 +360,7 @@ def run_fold(
             reve_model_path=REVE_MODEL_PATH,
             reve_pos_path=REVE_POS_PATH,
             config=config,
+            weights_only=False,  # PyTorch 2.6+ requires this for pathlib paths
         )
         # Save LoRA adapter weights
         adapter_path = ckpt_dir / "lora_adapter_weights.pt"
@@ -405,7 +406,7 @@ def run_fold(
 def main() -> None:
     global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE
     global LORA_RANK, LORA_ALPHA, PHASE1_EPOCHS, WARMUP_EPOCHS, UNFREEZE_CLS
-    global LR_HEAD, LR_LORA, MIXUP_ALPHA
+    global LR_HEAD, LR_LORA, MIXUP_ALPHA, BATCH_SIZE
 
     parser = argparse.ArgumentParser(
         description="LoRA Fine-Tuning of REVE on THU-EP"
@@ -458,6 +459,10 @@ def main() -> None:
         "--mixup-alpha", type=float, default=MIXUP_ALPHA, metavar="F",
         help="Mixup Beta distribution param; 0 = disabled (default: %(default)s).",
     )
+    parser.add_argument(
+        "--batch-size", type=int, default=BATCH_SIZE, metavar="N",
+        help="Batch size per GPU (default: %(default)s).",
+    )
     args = parser.parse_args()
 
     TASK_MODE     = args.task
@@ -472,6 +477,7 @@ def main() -> None:
     LR_HEAD       = args.lr_head
     LR_LORA       = args.lr_lora
     MIXUP_ALPHA   = args.mixup_alpha
+    BATCH_SIZE    = args.batch_size
 
     L.seed_everything(42, workers=True)
 
