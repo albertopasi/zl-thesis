@@ -149,7 +149,6 @@ Without pooling, window size becomes a meaningful variable:
 
 | Window (flat repr.) | Binary Acc | Binary AUROC |
 | --------------------- | ----------- | ------------- |
-
 | 5s/2s | 57.54% | 0.5955 |
 | 8s/4s | 61.07% | 0.6381 |
 | 10s/5s | 62.66% | 0.6479 |
@@ -176,7 +175,6 @@ This consistency across ten random subject partitions confirms that the observed
 
 | Task | Best config | Acc | AUROC | F1 | Chance | Gain |
 | ------ | ------------ | ----- | ------- | ----- | -------- | ------ |
-
 | Binary | nopool_flat, 10s/10s | **66.11%** | **0.6967** | **0.648** | 50.00% | +16.11 pp |
 | 9-class | nopool_flat, 10s/10s | **38.02%** | **0.7568** | **0.374** | 11.11% | +26.91 pp |
 
