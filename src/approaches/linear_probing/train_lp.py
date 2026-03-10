@@ -15,7 +15,7 @@ Workflow
 7. Log to Weights & Biases, save classifier weights and a results JSON.
 
 Run with:
-    # Binary, all folds (default)
+    # Binary, all folds (default) (pooled embeddings) (Bx512)
     uv run python -m src.approaches.linear_probing.train_lp --task binary
 
     # 9-class, all folds
@@ -26,6 +26,13 @@ Run with:
 
     # Specify window size and stride
     uv run python -m src.approaches.linear_probing.train_lp --window 8 --stride 4   # default
+
+    Non pooled embeddings:
+    # No-pool, mean over channels (B, Hx512) (H is the number of time patches)
+    uv run python -m src.approaches.linear_probing.train_lp --task binary --no-pooling --fold 1
+
+    # No-pool, full flatten (B, CxHx512)
+    uv run python -m src.approaches.linear_probing.train_lp --task binary --no-pooling --no-pool-mode flat
 
 """
 
@@ -62,10 +69,11 @@ from src.approaches.linear_probing.model import EmbeddingExtractor, LinearProber
 
 TASK_MODE          = "binary"   # 'binary' or '9-class'
 NORMALIZE_FEATURES = False      # L2-normalize embeddings before the linear classifier
+USE_POOLING        = True       # True = attention pooling (512-D); False = raw patch embeddings
+NO_POOL_MODE       = "mean"     # "mean" (spatial avg → H×512) or "flat" (C×H×512); ignored when USE_POOLING=True
 MAX_EPOCHS         = 80
 BATCH_SIZE         = 64
 LR                 = 1e-3
-EMBED_DIM          = 512
 
 # Only fold 1 is run as a dry run; set to None to run all folds.
 DRY_RUN_FOLD = None
@@ -152,8 +160,9 @@ def _print_fold_summary(fold_results: list[dict]) -> None:
     # Save aggregate JSON
     w_s  = round(WINDOW_SIZE / SAMPLING_RATE)
     st_s = round(STRIDE / SAMPLING_RATE)
+    pool_tag = "pool" if USE_POOLING else f"nopool_{NO_POOL_MODE}"
     norm_tag = "_norm" if NORMALIZE_FEATURES else ""
-    agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}_w{w_s}s{st_s}{norm_tag}.json"
+    agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}.json"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     agg = {
         "task_mode":    TASK_MODE,
@@ -180,7 +189,8 @@ def _print_fold_summary(fold_results: list[dict]) -> None:
 
 def subject_cache_path(subject_id: int, task_mode: str) -> Path:
     """Return the path for a single subject's pre-computed embedding file."""
-    return EMBEDDINGS_DIR / task_mode / f"ws{WINDOW_SIZE}_st{STRIDE}" / f"sub_{subject_id:02d}.pt"
+    pool_tag = "pool" if USE_POOLING else f"nopool_{NO_POOL_MODE}"
+    return EMBEDDINGS_DIR / task_mode / f"ws{WINDOW_SIZE}_st{STRIDE}_{pool_tag}" / f"sub_{subject_id:02d}.pt"
 
 
 def precompute_all_subjects(
@@ -231,7 +241,8 @@ def precompute_all_subjects(
             print(f"({n_win} windows)", end="  ", flush=True)
 
             embeddings, labels = extractor.extract_embeddings(
-                dataset, batch_size=BATCH_SIZE
+                dataset, batch_size=BATCH_SIZE,
+                use_pooling=USE_POOLING, no_pool_mode=NO_POOL_MODE,
             )
             EmbeddingExtractor.save_embeddings(
                 embeddings, labels, subject_cache_path(sid, TASK_MODE)
@@ -329,13 +340,15 @@ def run_fold(
 
     # Model, logger, callbacks
     num_classes = 2 if TASK_MODE == "binary" else 9
-    model = LinearProber(num_classes=num_classes, embed_dim=EMBED_DIM, lr=LR,
+    embed_dim   = train_embs.shape[1]   # inferred from cached tensor shape
+    model = LinearProber(num_classes=num_classes, embed_dim=embed_dim, lr=LR,
                          normalize_features=NORMALIZE_FEATURES)
 
     w_s = round(WINDOW_SIZE / SAMPLING_RATE)
     st_s = round(STRIDE / SAMPLING_RATE)
-    norm_tag = "_norm" if NORMALIZE_FEATURES else ""
-    run_name = f"lp_{TASK_MODE}_w{w_s}s{st_s}{norm_tag}_fold_{fold_idx}"
+    pool_tag  = "pool" if USE_POOLING else f"nopool_{NO_POOL_MODE}"
+    norm_tag  = "_norm" if NORMALIZE_FEATURES else ""
+    run_name = f"lp_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}_fold_{fold_idx}"
     ckpt_dir = OUTPUT_DIR / run_name
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -353,6 +366,9 @@ def run_fold(
         "n_train_windows":   int(train_embs.shape[0]),
         "n_val_windows":     int(val_embs.shape[0]),
         "normalize_features": NORMALIZE_FEATURES,
+        "use_pooling":       USE_POOLING,
+        "no_pool_mode":      NO_POOL_MODE,
+        "embed_dim":         embed_dim,
     }
 
     # Build logger: W&B if enabled, otherwise fall back to CSV.
@@ -361,7 +377,7 @@ def run_fold(
             project=WANDB_PROJECT,
             entity=WANDB_ENTITY,
             name=run_name,
-            group=f"lp_{TASK_MODE}_w{w_s}s{st_s}{norm_tag}",
+            group=f"lp_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}",
             config=hparams,
             log_model=False,
             reinit=True,    # allow multiple runs in the same process (one per fold)
@@ -449,7 +465,7 @@ def run_fold(
 
 
 def main() -> None:
-    global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE, NORMALIZE_FEATURES
+    global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE, NORMALIZE_FEATURES, USE_POOLING, NO_POOL_MODE
 
     parser = argparse.ArgumentParser(description="Linear Probing on THU-EP with REVE embeddings")
     parser.add_argument(
@@ -472,12 +488,23 @@ def main() -> None:
         "--normalize", action="store_true", default=False,
         help="Apply L2 feature normalization before the linear classifier.",
     )
+    parser.add_argument(
+        "--no-pooling", dest="no_pooling", action="store_true", default=False,
+        help="Bypass attention pooling; use raw patch embeddings flattened by --no-pool-mode.",
+    )
+    parser.add_argument(
+        "--no-pool-mode", dest="no_pool_mode", choices=["mean", "flat"], default="mean",
+        help="How to flatten raw patches when --no-pooling is set: "
+             "'mean' (avg over channels → H×512, default) or 'flat' (C×H×512).",
+    )
     args = parser.parse_args()
     TASK_MODE          = args.task
     DRY_RUN_FOLD       = args.fold
     WINDOW_SIZE        = round(args.window * SAMPLING_RATE)
     STRIDE             = round(args.stride * SAMPLING_RATE)
     NORMALIZE_FEATURES = args.normalize
+    USE_POOLING        = not args.no_pooling
+    NO_POOL_MODE       = args.no_pool_mode
 
     L.seed_everything(42, workers=True)
 

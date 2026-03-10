@@ -98,16 +98,24 @@ class EmbeddingExtractor:
         self,
         dataset: THUEPWindowDataset,
         batch_size: int = 64,
+        use_pooling: bool = True,
+        no_pool_mode: str = "mean",
     ) -> Tuple[Tensor, Tensor]:
         """
         Pass every window in `dataset` through the frozen REVE encoder.
 
         Args:
-            dataset:    THUEPWindowDataset (windows already in RAM).
-            batch_size: How many windows to process per GPU forward pass.
+            dataset:      THUEPWindowDataset (windows already in RAM).
+            batch_size:   How many windows to process per GPU forward pass.
+            use_pooling:  If True, apply REVE attention_pooling → (N, 512).
+                          If False, return raw patch embeddings flattened
+                          according to `no_pool_mode`.
+            no_pool_mode: Only used when use_pooling=False.
+                          "mean" → mean over channels, flatten time patches → (N, H*512).
+                          "flat" → full flatten → (N, C*H*512).
 
         Returns:
-            embeddings: Float32 Tensor of shape (N, 512) on CPU.
+            embeddings: Float32 Tensor on CPU.
             labels:     Int64 Tensor of shape (N,) on CPU.
         """
         loader = DataLoader(
@@ -137,8 +145,13 @@ class EmbeddingExtractor:
             #   where C=30 channels, H=time patches, E=512
             out_4d: Tensor = self.reve(eeg_batch, pos)  # (B, 30, H, 512)
 
-            # Step 2: Attention pooling → single 512-D vector per window
-            emb: Tensor = self.reve.attention_pooling(out_4d)  # (B, 512)
+            # Step 2: Pool or flatten depending on use_pooling
+            if use_pooling:
+                emb = self.reve.attention_pooling(out_4d)   # (B, 512)
+            elif no_pool_mode == "mean":
+                emb = out_4d.mean(dim=1).reshape(B, -1)     # (B, H*512)
+            else:  # "flat"
+                emb = out_4d.reshape(B, -1)                  # (B, C*H*512)
 
             all_embeddings.append(emb.cpu())
             all_labels.append(label_batch.long())
