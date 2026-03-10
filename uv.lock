@@ -608,16 +608,6 @@ wheels = [
 ]
 
 [[package]]
-name = "flash-attn"
-version = "2.8.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "einops" },
-    { name = "torch" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3b/b2/8d76c41ad7974ee264754709c22963447f7f8134613fd9ce80984ed0dab7/flash_attn-2.8.3.tar.gz", hash = "sha256:1e71dd64a9e0280e0447b8a0c2541bad4bf6ac65bdeaa2f90e51a9e57de0370d", size = 8447812, upload-time = "2025-08-15T08:28:12.911Z" }
-
-[[package]]
 name = "fonttools"
 version = "4.61.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3675,15 +3665,11 @@ dev = [
     { name = "jupyter" },
     { name = "jupyterlab" },
 ]
-gpu = [
-    { name = "flash-attn" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "click" },
     { name = "einops", specifier = ">=0.8.1" },
-    { name = "flash-attn", marker = "extra == 'gpu'" },
     { name = "h5py" },
     { name = "huggingface-hub", extras = ["hf-xet"] },
     { name = "ipykernel", marker = "extra == 'dev'" },
@@ -3710,4 +3696,4 @@ requires-dist = [
     { name = "transformers" },
     { name = "wandb" },
 ]
-provides-extras = ["dev", "gpu"]
+provides-extras = ["dev"]
