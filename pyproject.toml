@@ -37,3 +37,9 @@ dev = [
     "ipykernel",
     "ipywidgets",
 ]
+gpu = [
+    "flash-attn",
+]
+
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch"]
