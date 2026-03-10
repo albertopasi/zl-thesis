@@ -17,7 +17,7 @@
 REVE's transformer outputs a 4-D tensor of shape `(B, 30, H, 512)` — 30 EEG channels, H time patches (dependent on window length), 512 hidden dimensions. Three strategies are compared for converting this into a fixed-size vector for the linear head:
 
 | Strategy | Notation | How | Embed dim (10s window) |
-|----------|----------|-----|------------------------|
+| ---------- | ---------- | ----- | ------------------------ |
 | **Attention pooling** | `pool` | REVE's learnable `cls_query_token` aggregates all channels and time patches → `(B, 512)` | 512 |
 | **No-pool, channel-mean** | `nopool_mean` | Mean over the 30-channel dim → `(B, H, 512)` → flatten | 5,632 |
 | **No-pool, flatten** | `nopool_flat` | Flatten entire 4-D output → `(B, 30 × H × 512)` | 168,960 |
@@ -25,7 +25,7 @@ REVE's transformer outputs a 4-D tensor of shape `(B, 30, H, 512)` — 30 EEG ch
 For the flat strategy, dimensionality scales with window size:
 
 | Window | H (time patches) | Flat dim |
-|--------|-------------------|----------|
+| -------- | ------------------- | ---------- |
 | 5s (1000 samples) | 5 | 76,800 |
 | 8s (1600 samples) | 8 | 122,880 |
 | 10s (2000 samples) | 11 | 168,960 |
@@ -33,7 +33,7 @@ For the flat strategy, dimensionality scales with window size:
 ### Window and stride configurations
 
 | Label | Window | Stride | Overlap | Windows per 30s stimulus |
-|-------|--------|--------|---------|--------------------------|
+| ------- | -------- | -------- | --------- | -------------------------- |
 | w5s2 | 5s | 2s | 60% | 13 |
 | w8s4 | 8s | 4s | 50% | 6 |
 | w10s5 | 10s | 5s | 50% | 5 |
@@ -48,7 +48,7 @@ Random chance: 50.00%
 ### 2.1 Effect of representation (fixed 10s window)
 
 | Representation | Stride | Dim | Acc (mean ± std) | AUROC (mean ± std) | F1 (mean ± std) | Train Acc @ best | Final Train Acc |
-|----------------|--------|-----|-------------------|--------------------|--------------------|------------------|-----------------|
+| ---------------- | -------- | ----- | ------------------- | -------------------- | -------------------- | ------------------ | ----------------- |
 | pool | 5s | 512 | 55.76% ± 1.67% | 0.5620 ± 0.0260 | 0.517 ± 0.072 | 57.90% | 59.76% |
 | nopool_mean | 5s | 5,632 | 59.88% ± 1.47% | 0.6225 ± 0.0189 | 0.603 ± 0.035 | 65.43% | 67.65% |
 | nopool_flat | 5s | 168,960 | 62.66% ± 1.71% | 0.6479 ± 0.0197 | 0.608 ± 0.054 | 85.72% | 94.57% |
@@ -57,7 +57,7 @@ Random chance: 50.00%
 ### 2.2 Effect of window size (flat representation)
 
 | Window | Stride | Dim | Acc (mean ± std) | AUROC (mean ± std) | F1 (mean ± std) | Train Acc @ best | Final Train Acc |
-|--------|--------|-----|-------------------|--------------------|--------------------|------------------|-----------------|
+| -------- | -------- | ----- | ------------------- | -------------------- | -------------------- | ------------------ | ----------------- |
 | 5s | 2s | 76,800 | 57.54% ± 1.70% | 0.5955 ± 0.0257 | 0.551 ± 0.054 | 75.49% | 85.88% |
 | 8s | 4s | 122,880 | 61.07% ± 2.20% | 0.6381 ± 0.0237 | 0.587 ± 0.068 | 80.78% | 91.97% |
 | 10s | 5s | 168,960 | 62.66% ± 1.71% | 0.6479 ± 0.0197 | 0.608 ± 0.054 | 85.72% | 94.57% |
@@ -70,7 +70,7 @@ Random chance: 50.00%
 Random chance: 11.11% (1/9)
 
 | Representation | Window | Stride | Dim | Acc (mean ± std) | AUROC (mean ± std) | F1 (mean ± std) | Train Acc @ best | Final Train Acc |
-|----------------|--------|--------|-----|-------------------|--------------------|--------------------|------------------|-----------------|
+| ---------------- | -------- | -------- | ----- | ------------------- | -------------------- | -------------------- | ------------------ | ----------------- |
 | nopool_flat | 10s | 5s | 168,960 | 34.14% ± 3.10% | 0.7064 ± 0.0250 | 0.334 ± 0.033 | 89.46% | 93.41% |
 | nopool_flat | 10s | 10s | 168,960 | **38.02% ± 2.05%** | **0.7568 ± 0.0241** | **0.374 ± 0.025** | 90.02% | 94.73% |
 
@@ -85,7 +85,7 @@ For reference, the previous iteration of this baseline with attention-pooled 512
 The central finding of these experiments is that **compressing REVE's 4-D output into a 512-D attention-pooled summary discards the majority of emotion-relevant information.** The magnitude of the improvement when bypassing pooling is not incremental — it is a qualitative shift:
 
 | Task | Pooled Acc | Flat Acc | Gain |
-|------|-----------|----------|------|
+| ------ | ----------- | ---------- | ------ |
 | Binary | 55.76% | 66.11% | +10.35 pp |
 | 9-class | ~21.37% | 38.02% | +16.65 pp |
 
@@ -98,7 +98,7 @@ This result has a direct implication for RQ1: the question "can REVE overcome in
 Bypassing pooling introduces a dimensionality explosion (512 → 168,960). Combined with ~8,500 training windows (binary) or ~9,900 (9-class, overlapping) or ~5,100–5,900 (non-overlapping), this creates an extreme parameter-to-sample imbalance:
 
 | Representation | Dim | Linear params (binary / 9-class) | Approx. train samples |
-|----------------|-----|----------------------------------|----------------------|
+| ---------------- | ----- | ---------------------------------- | ---------------------- |
 | pool | 512 | 1,026 / 4,617 | 8,500 |
 | nopool_mean | 5,632 | 11,266 / 50,697 | 8,500 |
 | nopool_flat | 168,960 | 337,922 / 1,520,649 | 5,100–9,900 |
@@ -106,7 +106,7 @@ Bypassing pooling introduces a dimensionality explosion (512 → 168,960). Combi
 The overfitting signature is unmistakable and scales monotonically with dimensionality:
 
 | Representation | Train Acc @ best epoch | Val Acc @ best epoch | Gap |
-|----------------|----------------------|---------------------|-----|
+| ---------------- | ---------------------- | --------------------- | ----- |
 | pool (binary) | 57.90% | 55.76% | 2.14 pp |
 | nopool_mean (binary) | 65.43% | 59.88% | 5.55 pp |
 | nopool_flat (binary, w10s5) | 85.72% | 62.66% | 23.06 pp |
@@ -129,7 +129,7 @@ Several patterns emerge:
 A consistent and initially counter-intuitive finding: increasing the stride to eliminate overlap improves generalisation, despite reducing the number of training samples:
 
 | Config | Overlap | Windows/stim | Approx. train windows | Val Acc | Val AUROC |
-|--------|---------|-------------|----------------------|---------|-----------|
+| -------- | --------- | ------------- | ---------------------- | --------- | ----------- |
 | Binary flat w10s5 | 50% | 5 | ~8,500 | 62.66% | 0.6479 |
 | Binary flat w10s10 | 0% | 3 | ~5,100 | **66.11%** | **0.6967** |
 | 9-class flat w10s5 | 50% | 5 | ~9,900 | 34.14% | 0.7064 |
@@ -148,7 +148,8 @@ Under attention pooling (512-D), window size had negligible impact: earlier expe
 Without pooling, window size becomes a meaningful variable:
 
 | Window (flat repr.) | Binary Acc | Binary AUROC |
-|---------------------|-----------|-------------|
+| --------------------- | ----------- | ------------- |
+
 | 5s/2s | 57.54% | 0.5955 |
 | 8s/4s | 61.07% | 0.6381 |
 | 10s/5s | 62.66% | 0.6479 |
@@ -174,7 +175,8 @@ This consistency across ten random subject partitions confirms that the observed
 ## 5. Summary and Floor Metrics
 
 | Task | Best config | Acc | AUROC | F1 | Chance | Gain |
-|------|------------|-----|-------|-----|--------|------|
+| ------ | ------------ | ----- | ------- | ----- | -------- | ------ |
+
 | Binary | nopool_flat, 10s/10s | **66.11%** | **0.6967** | **0.648** | 50.00% | +16.11 pp |
 | 9-class | nopool_flat, 10s/10s | **38.02%** | **0.7568** | **0.374** | 11.11% | +26.91 pp |
 
