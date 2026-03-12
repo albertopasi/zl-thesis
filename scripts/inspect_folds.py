@@ -55,12 +55,22 @@ def stim_tag(stim_idx: int) -> str:
     return f"S{stim_idx:02d}(?)"
 
 
+def _emotion_of_stim(stim_idx: int) -> str:
+    """Return the emotion name for a stimulus index."""
+    for stim_range, cls9 in _EMOTION_GROUPS:
+        if stim_idx in stim_range:
+            return EMOTION_NAMES[cls9]
+    return "Unknown"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Inspect fold construction for THU-EP")
     parser.add_argument("--task", choices=["binary", "9-class"], default="binary")
     parser.add_argument("--window", type=float, default=8.0, help="Window length in seconds")
     parser.add_argument("--stride", type=float, default=4.0, help="Stride in seconds")
     parser.add_argument("--generalization", action="store_true", help="Show stimulus generalization split")
+    parser.add_argument("--gen-seeds", dest="gen_seeds", type=int, nargs="+", default=[123],
+                        help="Stimulus split seeds (default: [123]). Use with --generalization.")
     parser.add_argument("--fold", type=int, default=None, help="Show only this fold (1-indexed)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show per-subject stimulus details")
     args = parser.parse_args()
@@ -100,24 +110,65 @@ def main():
         tags = [stim_tag(s) for s in sorted(stims)]
         print(f"  Subject {sid:02d}: excluded stimuli {tags}")
 
-    # Generalization split
+    # Generalization split(s)
     gen_train_stim: set[int] | None = None
     gen_val_stim: set[int] | None = None
+    seed_splits: dict[int, tuple[set[int], set[int]]] = {}
     if args.generalization:
-        gen_train_stim, gen_val_stim = get_stimulus_generalization_split(task_mode)
-        print(f"\n--- Stimulus Generalization Split ---")
-        print(f"  Train stimuli ({len(gen_train_stim)}): {sorted(gen_train_stim)}")
-        for s in sorted(gen_train_stim):
-            print(f"    {stim_tag(s):20s}  label={label_map[s]}")
-        print(f"  Val stimuli ({len(gen_val_stim)}):  {sorted(gen_val_stim)}")
-        for s in sorted(gen_val_stim):
-            print(f"    {stim_tag(s):20s}  label={label_map[s]}")
+        for seed in args.gen_seeds:
+            tr, va = get_stimulus_generalization_split(task_mode, seed=seed)
+            seed_splits[seed] = (tr, va)
 
-        # Check label balance
-        train_labels = Counter(label_map[s] for s in gen_train_stim)
-        val_labels = Counter(label_map[s] for s in gen_val_stim)
-        print(f"\n  Train label distribution: {dict(sorted(train_labels.items()))}")
-        print(f"  Val   label distribution: {dict(sorted(val_labels.items()))}")
+            print(f"\n--- Stimulus Generalization Split (seed={seed}) ---")
+            print(f"  Train stimuli ({len(tr)}): {sorted(tr)}")
+            for s in sorted(tr):
+                print(f"    {stim_tag(s):20s}  label={label_map[s]}")
+            print(f"  Val stimuli ({len(va)}):  {sorted(va)}")
+            for s in sorted(va):
+                print(f"    {stim_tag(s):20s}  label={label_map[s]}")
+
+            # Check label balance
+            train_labels = Counter(label_map[s] for s in tr)
+            val_labels = Counter(label_map[s] for s in va)
+            print(f"\n  Train label distribution: {dict(sorted(train_labels.items()))}")
+            print(f"  Val   label distribution: {dict(sorted(val_labels.items()))}")
+
+        if len(seed_splits) > 1:
+            print(f"\n--- Cross-seed Comparison ---")
+            seeds = list(seed_splits.keys())
+
+            for seed in seeds:
+                tr, va = seed_splits[seed]
+                emo_tr = Counter(_emotion_of_stim(s) for s in tr)
+                emo_va = Counter(_emotion_of_stim(s) for s in va)
+                print(f"\n  Seed {seed}:")
+                print(f"    Train by emotion: {dict(sorted(emo_tr.items()))}")
+                print(f"    Val   by emotion: {dict(sorted(emo_va.items()))}")
+
+            print(f"\n  Pairwise seed differences:")
+            for i in range(len(seeds)):
+                for j in range(i + 1, len(seeds)):
+                    s1, s2 = seeds[i], seeds[j]
+                    tr1, va1 = seed_splits[s1]
+                    tr2, va2 = seed_splits[s2]
+
+                    tr_only_1 = sorted(tr1 - tr2)
+                    tr_only_2 = sorted(tr2 - tr1)
+                    va_only_1 = sorted(va1 - va2)
+                    va_only_2 = sorted(va2 - va1)
+
+                    print(f"\n    Seed {s1} vs {s2}:")
+                    print(f"      Train overlap: {len(tr1 & tr2)}/{len(tr1 | tr2)}")
+                    print(f"      Val   overlap: {len(va1 & va2)}/{len(va1 | va2)}")
+                    print(f"      Train only in {s1}: {tr_only_1}")
+                    print(f"      Train only in {s2}: {tr_only_2}")
+                    print(f"      Val   only in {s1}: {va_only_1}")
+                    print(f"      Val   only in {s2}: {va_only_2}")
+
+        # Use the first seed for the fold detail display below
+        first_seed = args.gen_seeds[0]
+        gen_train_stim, gen_val_stim = seed_splits[first_seed]
+        print(f"\nUsing seed={first_seed} for fold-level window counts below.")
 
     # Fold splits
     all_subjects = get_all_subjects()

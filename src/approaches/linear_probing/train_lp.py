@@ -34,6 +34,13 @@ Run with:
     # No-pool, full flatten (B, CxHx512)
     uv run python -m src.approaches.linear_probing.train_lp --task binary --no-pooling --no-pool-mode flat
 
+    Generalization (held-out stimuli):
+    # Single seed (default)
+    uv run python -m src.approaches.linear_probing.train_lp --task binary --generalization
+
+    # Multi-seed robustness check (5 seeds)
+    uv run python -m src.approaches.linear_probing.train_lp --task binary --generalization --gen-seeds 123 456 789 101 202
+
 """
 
 from __future__ import annotations
@@ -70,8 +77,9 @@ from src.approaches.linear_probing.model import EmbeddingExtractor, LinearProber
 TASK_MODE          = "binary"   # 'binary' or '9-class'
 NORMALIZE_FEATURES = False      # L2-normalize embeddings before the linear classifier
 USE_POOLING        = True       # True = attention pooling (512-D); False = raw patch embeddings
-NO_POOL_MODE       = "mean"     # "mean" (spatial avg → H×512) or "flat" (C×H×512); ignored when USE_POOLING=True
+NO_POOL_MODE       = "mean"     # "mean" (spatial avg -> Hx512) or "flat" (CxHx512); ignored when USE_POOLING=True
 GENERALIZATION     = False      # True = held-out stimuli in val (unseen subjects + unseen stimuli)
+GEN_SEEDS: list[int] = [123]   # Stimulus split seeds for generalization; multiple seeds = robustness check
 MAX_EPOCHS         = 80
 BATCH_SIZE         = 64
 LR                 = 1e-3
@@ -92,7 +100,7 @@ WANDB_PROJECT = "eeg-lp-thu-ep"
 WANDB_ENTITY  = "zl-tudelft-thesis"   # e.g. "my-team". None = W&B picks the default entity.
 
 
-# Window parameters (timepoints = seconds × SAMPLING_RATE)
+# Window parameters (timepoints = seconds x SAMPLING_RATE)
 SAMPLING_RATE = 200  # Hz
 WINDOW_SIZE = 1600   # 8 s at 200 Hz
 STRIDE      = 800    # 4 s at 200 Hz
@@ -110,18 +118,19 @@ _SEP     = SEP
 
 
 # Cross-fold summary
-def _print_fold_summary(fold_results: list[dict]) -> None:
+def _print_fold_summary(fold_results: list[dict], gen_seed: int | None = None) -> None:
     """
     Print a per-fold metrics table and mean ± std across all completed folds.
     Also saves an aggregate JSON to OUTPUT_DIR/summary_{TASK_MODE}.json.
     """
-    print(f"\n{'═' * _COL_W}")
-    print(f"  CROSS-FOLD SUMMARY  ({len(fold_results)} folds  |  task={TASK_MODE})")
-    print(f"{'═' * _COL_W}")
+    seed_label = f"  |  gen_seed={gen_seed}" if gen_seed is not None else ""
+    print(f"\n{'=' * _COL_W}")
+    print(f"  CROSS-FOLD SUMMARY  ({len(fold_results)} folds  |  task={TASK_MODE}{seed_label})")
+    print(f"{'=' * _COL_W}")
 
     col = f"{'Fold':>5}  {'ValAcc':>8}  {'ValAUROC':>9}  {'ValF1':>8}  {'Epochs':>7}  {'BestEp':>7}"
     print(col)
-    print("─" * len(col))
+    print("-" * len(col))
 
     accs, aurocs, f1s = [], [], []
     for r in fold_results:
@@ -141,7 +150,7 @@ def _print_fold_summary(fold_results: list[dict]) -> None:
             f"{r.get('best_epoch', 0):>7}"
         )
 
-    print("─" * len(col))
+    print("-" * len(col))
 
     def _stat(vals: list[float]) -> tuple[str, str]:
         if not vals:
@@ -156,14 +165,14 @@ def _print_fold_summary(fold_results: list[dict]) -> None:
 
     print(f"{'Mean':>5}  {acc_mean:>8}  {auroc_mean:>9}  {f1_mean:>8}")
     print(f"{'Std':>5}  {acc_std:>8}  {auroc_std:>9}  {f1_std:>8}")
-    print(f"{'═' * _COL_W}")
+    print(f"{'=' * _COL_W}")
 
     # Save aggregate JSON
     w_s  = round(WINDOW_SIZE / SAMPLING_RATE)
     st_s = round(STRIDE / SAMPLING_RATE)
     pool_tag = "pool" if USE_POOLING else f"nopool_{NO_POOL_MODE}"
     norm_tag = "_norm" if NORMALIZE_FEATURES else ""
-    gen_tag_name = "_gen" if GENERALIZATION else ""
+    gen_tag_name = f"_gen_s{gen_seed}" if gen_seed is not None else ""
     agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}{gen_tag_name}.json"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     agg = {
@@ -184,7 +193,7 @@ def _print_fold_summary(fold_results: list[dict]) -> None:
     }
     with open(agg_path, "w", encoding="utf-8") as f:
         json.dump(agg, f, indent=2)
-    print(f"Aggregate results saved → {agg_path}")
+    print(f"Aggregate results saved -> {agg_path}")
 
 
 # Per-subject embedding cache helpers
@@ -325,6 +334,7 @@ def run_fold(
     val_subject_ids: list[int],
     train_stimuli: set[int] | None = None,
     val_stimuli: set[int] | None = None,
+    gen_seed: int | None = None,
 ) -> None:
     """
     Train the linear classifier for one fold using pre-computed embeddings.
@@ -333,8 +343,10 @@ def run_fold(
     Args:
         train_stimuli: If provided, only use these stimulus indices for training.
         val_stimuli:   If provided, only use these stimulus indices for validation.
+        gen_seed:      Stimulus split seed (for naming). None when not in generalization mode.
     """
-    gen_tag = "  |  GENERALIZATION (held-out stimuli)" if GENERALIZATION else ""
+    seed_label = f"  |  gen_seed={gen_seed}" if gen_seed is not None else ""
+    gen_tag = f"  |  GENERALIZATION (held-out stimuli){seed_label}" if GENERALIZATION else ""
     print(f"\n{'#' * _COL_W}")
     print(
         f"  Fold {fold_idx}/{N_FOLDS}  |  task={TASK_MODE}  |  "
@@ -389,7 +401,7 @@ def run_fold(
     st_s = round(STRIDE / SAMPLING_RATE)
     pool_tag  = "pool" if USE_POOLING else f"nopool_{NO_POOL_MODE}"
     norm_tag  = "_norm" if NORMALIZE_FEATURES else ""
-    gen_tag_name = "_gen" if GENERALIZATION else ""
+    gen_tag_name = f"_gen_s{gen_seed}" if gen_seed is not None else ""
     run_name = f"lp_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}{gen_tag_name}_fold_{fold_idx}"
     ckpt_dir = OUTPUT_DIR / run_name
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -412,6 +424,7 @@ def run_fold(
         "no_pool_mode":      NO_POOL_MODE,
         "embed_dim":         embed_dim,
         "generalization":    GENERALIZATION,
+        "gen_seed":          gen_seed,
     }
 
     # Build logger: W&B if enabled, otherwise fall back to CSV.
@@ -420,7 +433,7 @@ def run_fold(
             project=WANDB_PROJECT,
             entity=WANDB_ENTITY,
             name=run_name,
-            group=f"lp_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}{gen_tag_name}",
+            group=f"lp_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}{'_gen' if GENERALIZATION else ''}",
             config=hparams,
             log_model=False,
             reinit=True,    # allow multiple runs in the same process (one per fold)
@@ -428,7 +441,7 @@ def run_fold(
         print(f"Logging to W&B  project={WANDB_PROJECT}  entity={WANDB_ENTITY}")
     else:
         logger = CSVLogger(save_dir=str(ckpt_dir), name="csv_logs")
-        print(f"W&B disabled. Logging to CSV → {ckpt_dir / 'csv_logs'}")
+        print(f"W&B disabled. Logging to CSV -> {ckpt_dir / 'csv_logs'}")
 
     checkpoint_cb = ModelCheckpoint(
         dirpath=str(ckpt_dir),
@@ -486,7 +499,7 @@ def run_fold(
         best_model = LinearProber.load_from_checkpoint(best_ckpt)
         weights_path = ckpt_dir / "classifier_weights.pt"
         torch.save(best_model.classifier.state_dict(), weights_path)
-        print(f"Classifier weights (best epoch) saved → {weights_path}")
+        print(f"Classifier weights (best epoch) saved -> {weights_path}")
         del best_model
     else:
         print("Warning: no checkpoint found, weights not saved.")
@@ -507,8 +520,83 @@ def run_fold(
     }
 
 
+def _print_cross_seed_summary(seed_summaries: list[dict]) -> None:
+    """
+    Print aggregate statistics across multiple generalization seeds.
+
+    Each entry in seed_summaries has keys: seed, mean_acc, mean_auroc, mean_f1.
+    """
+    print(f"\n{'=' * _COL_W}")
+    print(f"  CROSS-SEED SUMMARY  ({len(seed_summaries)} seeds  |  task={TASK_MODE})")
+    print(f"{'=' * _COL_W}")
+
+    col = f"{'Seed':>6}  {'MeanAcc':>9}  {'MeanAUROC':>10}  {'MeanF1':>9}"
+    print(col)
+    print("-" * len(col))
+
+    accs, aurocs, f1s = [], [], []
+    for s in seed_summaries:
+        acc   = s.get("mean_acc")
+        auroc = s.get("mean_auroc")
+        f1    = s.get("mean_f1")
+        if acc   is not None: accs.append(acc)
+        if auroc is not None: aurocs.append(auroc)
+        if f1    is not None: f1s.append(f1)
+        print(
+            f"{s['seed']:>6}  "
+            f"{_fmt(acc   if acc   is not None else float('nan')):>9}  "
+            f"{_fmt(auroc if auroc is not None else float('nan')):>10}  "
+            f"{_fmt(f1    if f1    is not None else float('nan')):>9}"
+        )
+
+    print("-" * len(col))
+
+    def _stat(vals):
+        if not vals:
+            return "n/a", "n/a"
+        mean = statistics.mean(vals)
+        std  = statistics.stdev(vals) if len(vals) > 1 else 0.0
+        return f"{mean:.4f}", f"{std:.4f}"
+
+    acc_mean,   acc_std   = _stat(accs)
+    auroc_mean, auroc_std = _stat(aurocs)
+    f1_mean,    f1_std    = _stat(f1s)
+
+    print(f"{'Mean':>6}  {acc_mean:>9}  {auroc_mean:>10}  {f1_mean:>9}")
+    print(f"{'Std':>6}  {acc_std:>9}  {auroc_std:>10}  {f1_std:>9}")
+    print(f"{'=' * _COL_W}")
+
+    # Save cross-seed JSON
+    w_s  = round(WINDOW_SIZE / SAMPLING_RATE)
+    st_s = round(STRIDE / SAMPLING_RATE)
+    pool_tag = "pool" if USE_POOLING else f"nopool_{NO_POOL_MODE}"
+    norm_tag = "_norm" if NORMALIZE_FEATURES else ""
+    agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}_gen_cross_seed.json"
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    agg = {
+        "task_mode":    TASK_MODE,
+        "completed_at": datetime.datetime.now().isoformat(),
+        "n_seeds":      len(seed_summaries),
+        "seeds":        [s["seed"] for s in seed_summaries],
+        "mean": {
+            "val_acc":   round(statistics.mean(accs),   4) if accs   else None,
+            "val_auroc": round(statistics.mean(aurocs), 4) if aurocs else None,
+            "val_f1":    round(statistics.mean(f1s),    4) if f1s    else None,
+        },
+        "std": {
+            "val_acc":   round(statistics.stdev(accs),   4) if len(accs)   > 1 else 0.0,
+            "val_auroc": round(statistics.stdev(aurocs), 4) if len(aurocs) > 1 else 0.0,
+            "val_f1":    round(statistics.stdev(f1s),    4) if len(f1s)    > 1 else 0.0,
+        },
+        "per_seed": seed_summaries,
+    }
+    with open(agg_path, "w", encoding="utf-8") as f:
+        json.dump(agg, f, indent=2)
+    print(f"Cross-seed aggregate saved -> {agg_path}")
+
+
 def main() -> None:
-    global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE, NORMALIZE_FEATURES, USE_POOLING, NO_POOL_MODE, GENERALIZATION
+    global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE, NORMALIZE_FEATURES, USE_POOLING, NO_POOL_MODE, GENERALIZATION, GEN_SEEDS
 
     parser = argparse.ArgumentParser(description="Linear Probing on THU-EP with REVE embeddings")
     parser.add_argument(
@@ -538,12 +626,17 @@ def main() -> None:
     parser.add_argument(
         "--no-pool-mode", dest="no_pool_mode", choices=["mean", "flat"], default="mean",
         help="How to flatten raw patches when --no-pooling is set: "
-             "'mean' (avg over channels → H×512, default) or 'flat' (C×H×512).",
+             "'mean' (avg over channels -> Hx512, default) or 'flat' (CxHx512).",
     )
     parser.add_argument(
         "--generalization", action="store_true", default=False,
         help="Stimulus-generalization evaluation: train on 2/3 of stimuli per emotion, "
              "test on held-out 1/3 stimuli from unseen subjects.",
+    )
+    parser.add_argument(
+        "--gen-seeds", dest="gen_seeds", type=int, nargs="+", default=[123],
+        help="Stimulus split seeds for generalization mode (default: [123]). "
+             "Pass multiple seeds for robustness check, e.g. --gen-seeds 123 456 789 101 202",
     )
     args = parser.parse_args()
     TASK_MODE          = args.task
@@ -554,6 +647,7 @@ def main() -> None:
     USE_POOLING        = not args.no_pooling
     NO_POOL_MODE       = args.no_pool_mode
     GENERALIZATION     = args.generalization
+    GEN_SEEDS          = args.gen_seeds
 
     L.seed_everything(42, workers=True)
 
@@ -571,16 +665,7 @@ def main() -> None:
     # Step 1: Pre-compute ONCE per subject (skips subjects already cached)
     precompute_all_subjects(all_subjects, config)
 
-    # Step 2: Stimulus split for generalization mode (if enabled)
-    train_stimuli: set[int] | None = None
-    val_stimuli: set[int] | None = None
-    if GENERALIZATION:
-        train_stimuli, val_stimuli = get_stimulus_generalization_split(TASK_MODE)
-        print(f"\nGeneralization mode: {len(train_stimuli)} train stimuli, {len(val_stimuli)} held-out stimuli")
-        print(f"  Train: {sorted(train_stimuli)}")
-        print(f"  Test:  {sorted(val_stimuli)}")
-
-    # Step 3: 10-fold cross-subject split
+    # Step 2: 10-fold cross-subject split (shared across all seeds)
     folds = get_kfold_splits(all_subjects)
 
     folds_to_run = (
@@ -589,22 +674,64 @@ def main() -> None:
         else [(i + 1, folds[i]) for i in range(N_FOLDS)]
     )
 
-    # Step 4: Train fold(s) — collect per-fold metrics for final summary
-    fold_results: list[dict] = []
-    for fold_idx, (train_idx, val_idx) in folds_to_run:
-        train_subjects = [all_subjects[i] for i in train_idx]
-        val_subjects   = [all_subjects[i] for i in val_idx]
-        result = run_fold(
-            fold_idx, train_subjects, val_subjects,
-            train_stimuli=train_stimuli, val_stimuli=val_stimuli,
-        )
-        fold_results.append(result)
+    # Step 3: Determine seed list
+    #   - Standard mode: single iteration with no stimulus filtering
+    #   - Generalization mode: one iteration per seed in GEN_SEEDS
+    seed_list: list[int | None] = [None]  # standard mode: single pass, no seed
+    if GENERALIZATION:
+        seed_list = GEN_SEEDS
+        print(f"\nGeneralization mode: {len(seed_list)} seed(s) = {seed_list}")
+
+    # Step 4: Outer loop over seeds, inner loop over folds
+    seed_summaries: list[dict] = []
+
+    for seed in seed_list:
+        train_stimuli: set[int] | None = None
+        val_stimuli: set[int] | None = None
+        gen_seed: int | None = None
+
+        if seed is not None:
+            gen_seed = seed
+            train_stimuli, val_stimuli = get_stimulus_generalization_split(TASK_MODE, seed=seed)
+            print(f"\n{'=' * _COL_W}")
+            print(f"  SEED {seed}  |  {len(train_stimuli)} train stimuli, {len(val_stimuli)} held-out stimuli")
+            print(f"  Train: {sorted(train_stimuli)}")
+            print(f"  Test:  {sorted(val_stimuli)}")
+            print(f"{'=' * _COL_W}")
+
+        fold_results: list[dict] = []
+        for fold_idx, (train_idx, val_idx) in folds_to_run:
+            train_subjects = [all_subjects[i] for i in train_idx]
+            val_subjects   = [all_subjects[i] for i in val_idx]
+            result = run_fold(
+                fold_idx, train_subjects, val_subjects,
+                train_stimuli=train_stimuli, val_stimuli=val_stimuli,
+                gen_seed=gen_seed,
+            )
+            fold_results.append(result)
+
+        # Per-seed fold summary
+        if len(fold_results) > 1:
+            _print_fold_summary(fold_results, gen_seed=gen_seed)
+
+        # Collect per-seed aggregate for cross-seed summary
+        if gen_seed is not None:
+            accs   = [r["val_acc"]   for r in fold_results if r.get("val_acc")   is not None]
+            aurocs = [r["val_auroc"] for r in fold_results if r.get("val_auroc") is not None]
+            f1s    = [r["val_f1"]    for r in fold_results if r.get("val_f1")    is not None]
+            seed_summaries.append({
+                "seed":       gen_seed,
+                "mean_acc":   round(statistics.mean(accs),   4) if accs   else None,
+                "mean_auroc": round(statistics.mean(aurocs), 4) if aurocs else None,
+                "mean_f1":    round(statistics.mean(f1s),    4) if f1s    else None,
+                "folds":      fold_results,
+            })
 
     print("\nAll folds complete.")
 
-    # Print and save cross-fold summary only when more than one fold was run
-    if len(fold_results) > 1:
-        _print_fold_summary(fold_results)
+    # Cross-seed summary (only when multiple seeds were run)
+    if len(seed_summaries) > 1:
+        _print_cross_seed_summary(seed_summaries)
 
 
 if __name__ == "__main__":
