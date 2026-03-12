@@ -100,7 +100,7 @@ class EmbeddingExtractor:
         batch_size: int = 64,
         use_pooling: bool = True,
         no_pool_mode: str = "mean",
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Pass every window in `dataset` through the frozen REVE encoder.
 
@@ -115,8 +115,9 @@ class EmbeddingExtractor:
                           "flat" → full flatten → (N, C*H*512).
 
         Returns:
-            embeddings: Float32 Tensor on CPU.
-            labels:     Int64 Tensor of shape (N,) on CPU.
+            embeddings:       Float32 Tensor on CPU, shape (N, D).
+            labels:           Int64 Tensor of shape (N,) on CPU.
+            stimulus_indices: Int64 Tensor of shape (N,) on CPU — 0-indexed stimulus ID per window.
         """
         loader = DataLoader(
             dataset,
@@ -156,25 +157,41 @@ class EmbeddingExtractor:
             all_embeddings.append(emb.cpu())
             all_labels.append(label_batch.long())
 
-        embeddings = torch.cat(all_embeddings, dim=0)  # (N, 512)
+        embeddings = torch.cat(all_embeddings, dim=0)  # (N, D)
         labels = torch.cat(all_labels, dim=0)          # (N,)
 
+        # Recover stimulus index for each window from the dataset's flat index.
+        # Order is preserved because the DataLoader uses shuffle=False.
+        stimulus_indices = torch.tensor(
+            [dataset.index[i][1] for i in range(len(dataset))],
+            dtype=torch.long,
+        )  # (N,)
+
         print(f"  Done. Embeddings shape: {embeddings.shape}")
-        return embeddings, labels
+        return embeddings, labels, stimulus_indices
 
     @staticmethod
-    def save_embeddings(embeddings: Tensor, labels: Tensor, save_path: Path) -> None:
+    def save_embeddings(
+        embeddings: Tensor,
+        labels: Tensor,
+        save_path: Path,
+        stimulus_indices: Tensor | None = None,
+    ) -> None:
         """
         Persist pre-computed embeddings to disk.
 
         Args:
-            embeddings: Tensor of shape (N, 512).
-            labels:     Tensor of shape (N,).
-            save_path:  Destination .pt file path (parent dirs created if needed).
+            embeddings:       Tensor of shape (N, D).
+            labels:           Tensor of shape (N,).
+            save_path:        Destination .pt file path (parent dirs created if needed).
+            stimulus_indices: Optional Tensor of shape (N,) — 0-indexed stimulus ID per window.
         """
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"embeddings": embeddings, "labels": labels}, save_path)
+        payload: dict[str, Tensor] = {"embeddings": embeddings, "labels": labels}
+        if stimulus_indices is not None:
+            payload["stimulus_indices"] = stimulus_indices
+        torch.save(payload, save_path)
         print(f"  Saved {embeddings.shape[0]:,} embeddings → {save_path}")
 
 

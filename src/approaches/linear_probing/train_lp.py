@@ -60,7 +60,7 @@ import wandb
 
 from src.thu_ep.config import THUEPConfig
 from src.thu_ep.dataset import EXCLUDED_SUBJECTS, THUEPWindowDataset
-from src.thu_ep.folds import get_all_subjects, get_kfold_splits, N_FOLDS
+from src.thu_ep.folds import get_all_subjects, get_kfold_splits, get_stimulus_generalization_split, N_FOLDS
 from src.thu_ep.callbacks import EpochSummaryCallback, fmt_dur, fmt_metric, COL_W, SEP
 from src.approaches.linear_probing.model import EmbeddingExtractor, LinearProber
 
@@ -71,6 +71,7 @@ TASK_MODE          = "binary"   # 'binary' or '9-class'
 NORMALIZE_FEATURES = False      # L2-normalize embeddings before the linear classifier
 USE_POOLING        = True       # True = attention pooling (512-D); False = raw patch embeddings
 NO_POOL_MODE       = "mean"     # "mean" (spatial avg → H×512) or "flat" (C×H×512); ignored when USE_POOLING=True
+GENERALIZATION     = False      # True = held-out stimuli in val (unseen subjects + unseen stimuli)
 MAX_EPOCHS         = 80
 BATCH_SIZE         = 64
 LR                 = 1e-3
@@ -162,7 +163,8 @@ def _print_fold_summary(fold_results: list[dict]) -> None:
     st_s = round(STRIDE / SAMPLING_RATE)
     pool_tag = "pool" if USE_POOLING else f"nopool_{NO_POOL_MODE}"
     norm_tag = "_norm" if NORMALIZE_FEATURES else ""
-    agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}.json"
+    gen_tag_name = "_gen" if GENERALIZATION else ""
+    agg_path = OUTPUT_DIR / f"summary_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}{gen_tag_name}.json"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     agg = {
         "task_mode":    TASK_MODE,
@@ -240,12 +242,13 @@ def precompute_all_subjects(
             n_win = len(dataset)
             print(f"({n_win} windows)", end="  ", flush=True)
 
-            embeddings, labels = extractor.extract_embeddings(
+            embeddings, labels, stim_indices = extractor.extract_embeddings(
                 dataset, batch_size=BATCH_SIZE,
                 use_pooling=USE_POOLING, no_pool_mode=NO_POOL_MODE,
             )
             EmbeddingExtractor.save_embeddings(
-                embeddings, labels, subject_cache_path(sid, TASK_MODE)
+                embeddings, labels, subject_cache_path(sid, TASK_MODE),
+                stimulus_indices=stim_indices,
             )
 
             elapsed_sub = time.time() - t_sub
@@ -268,16 +271,20 @@ def precompute_all_subjects(
 def load_subjects_embeddings(
     subject_ids: list[int],
     task_mode: str,
+    stimulus_filter: set[int] | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Load and concatenate per-subject embedding files for the given subjects.
 
     Args:
-        subject_ids: List of subject IDs to load.
-        task_mode:   'binary' or '9-class' (determines which cache folder to use).
+        subject_ids:     List of subject IDs to load.
+        task_mode:       'binary' or '9-class' (determines which cache folder to use).
+        stimulus_filter: If provided, only include windows whose stimulus index is
+                         in this set. Requires 'stimulus_indices' key in the .pt cache
+                         (re-extract embeddings if missing).
 
     Returns:
-        embeddings: Tensor of shape (N, 512)
+        embeddings: Tensor of shape (N, D)
         labels:     Tensor of shape (N,)
     """
     all_embs:   list[torch.Tensor] = []
@@ -286,8 +293,26 @@ def load_subjects_embeddings(
     for sid in subject_ids:
         path = subject_cache_path(sid, task_mode)
         payload = torch.load(path, map_location="cpu", weights_only=True)
-        all_embs.append(payload["embeddings"])
-        all_labels.append(payload["labels"])
+
+        embs   = payload["embeddings"]
+        labels = payload["labels"]
+
+        if stimulus_filter is not None:
+            if "stimulus_indices" not in payload:
+                raise RuntimeError(
+                    f"Cache file {path} does not contain 'stimulus_indices'. "
+                    "Delete the embedding cache and re-run to regenerate it."
+                )
+            stim_idx = payload["stimulus_indices"]
+            mask = torch.tensor(
+                [int(s.item()) in stimulus_filter for s in stim_idx],
+                dtype=torch.bool,
+            )
+            embs   = embs[mask]
+            labels = labels[mask]
+
+        all_embs.append(embs)
+        all_labels.append(labels)
 
     return torch.cat(all_embs, dim=0), torch.cat(all_labels, dim=0)
 
@@ -298,27 +323,43 @@ def run_fold(
     fold_idx: int,
     train_subject_ids: list[int],
     val_subject_ids: list[int],
+    train_stimuli: set[int] | None = None,
+    val_stimuli: set[int] | None = None,
 ) -> None:
     """
     Train the linear classifier for one fold using pre-computed embeddings.
     Embeddings are loaded from per-subject cache files (fast concat, no REVE).
+
+    Args:
+        train_stimuli: If provided, only use these stimulus indices for training.
+        val_stimuli:   If provided, only use these stimulus indices for validation.
     """
+    gen_tag = "  |  GENERALIZATION (held-out stimuli)" if GENERALIZATION else ""
     print(f"\n{'#' * _COL_W}")
     print(
         f"  Fold {fold_idx}/{N_FOLDS}  |  task={TASK_MODE}  |  "
-        f"max_epochs={MAX_EPOCHS}  |  device={DEVICE}"
+        f"max_epochs={MAX_EPOCHS}  |  device={DEVICE}{gen_tag}"
     )
     print(
         f"  train: {len(train_subject_ids)} subjects  |  "
         f"val: {len(val_subject_ids)} subjects"
     )
+    if train_stimuli is not None:
+        print(
+            f"  train stimuli: {sorted(train_stimuli)}  |  "
+            f"val stimuli: {sorted(val_stimuli)}"
+        )
     print(f"{'#' * _COL_W}")
 
     # Load pre-computed embeddings from per-subject cache files
     t_load = time.time()
     print("Loading embeddings from cache …", end="  ", flush=True)
-    train_embs, train_lbls = load_subjects_embeddings(train_subject_ids, TASK_MODE)
-    val_embs,   val_lbls   = load_subjects_embeddings(val_subject_ids,   TASK_MODE)
+    train_embs, train_lbls = load_subjects_embeddings(
+        train_subject_ids, TASK_MODE, stimulus_filter=train_stimuli,
+    )
+    val_embs, val_lbls = load_subjects_embeddings(
+        val_subject_ids, TASK_MODE, stimulus_filter=val_stimuli,
+    )
     print(
         f"done in {_fmt_dur(time.time() - t_load)}  "
         f"(train={train_embs.shape[0]:,}  val={val_embs.shape[0]:,})"
@@ -348,7 +389,8 @@ def run_fold(
     st_s = round(STRIDE / SAMPLING_RATE)
     pool_tag  = "pool" if USE_POOLING else f"nopool_{NO_POOL_MODE}"
     norm_tag  = "_norm" if NORMALIZE_FEATURES else ""
-    run_name = f"lp_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}_fold_{fold_idx}"
+    gen_tag_name = "_gen" if GENERALIZATION else ""
+    run_name = f"lp_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}{gen_tag_name}_fold_{fold_idx}"
     ckpt_dir = OUTPUT_DIR / run_name
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -369,6 +411,7 @@ def run_fold(
         "use_pooling":       USE_POOLING,
         "no_pool_mode":      NO_POOL_MODE,
         "embed_dim":         embed_dim,
+        "generalization":    GENERALIZATION,
     }
 
     # Build logger: W&B if enabled, otherwise fall back to CSV.
@@ -377,7 +420,7 @@ def run_fold(
             project=WANDB_PROJECT,
             entity=WANDB_ENTITY,
             name=run_name,
-            group=f"lp_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}",
+            group=f"lp_{TASK_MODE}_w{w_s}s{st_s}_{pool_tag}{norm_tag}{gen_tag_name}",
             config=hparams,
             log_model=False,
             reinit=True,    # allow multiple runs in the same process (one per fold)
@@ -465,7 +508,7 @@ def run_fold(
 
 
 def main() -> None:
-    global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE, NORMALIZE_FEATURES, USE_POOLING, NO_POOL_MODE
+    global TASK_MODE, DRY_RUN_FOLD, WINDOW_SIZE, STRIDE, NORMALIZE_FEATURES, USE_POOLING, NO_POOL_MODE, GENERALIZATION
 
     parser = argparse.ArgumentParser(description="Linear Probing on THU-EP with REVE embeddings")
     parser.add_argument(
@@ -497,6 +540,11 @@ def main() -> None:
         help="How to flatten raw patches when --no-pooling is set: "
              "'mean' (avg over channels → H×512, default) or 'flat' (C×H×512).",
     )
+    parser.add_argument(
+        "--generalization", action="store_true", default=False,
+        help="Stimulus-generalization evaluation: train on 2/3 of stimuli per emotion, "
+             "test on held-out 1/3 stimuli from unseen subjects.",
+    )
     args = parser.parse_args()
     TASK_MODE          = args.task
     DRY_RUN_FOLD       = args.fold
@@ -505,6 +553,7 @@ def main() -> None:
     NORMALIZE_FEATURES = args.normalize
     USE_POOLING        = not args.no_pooling
     NO_POOL_MODE       = args.no_pool_mode
+    GENERALIZATION     = args.generalization
 
     L.seed_everything(42, workers=True)
 
@@ -515,13 +564,23 @@ def main() -> None:
     print(
         f"Device: {DEVICE}  |  task_mode: {TASK_MODE}  |  dry_run_fold: {DRY_RUN_FOLD}  |  "
         f"window: {WINDOW_SIZE/SAMPLING_RATE}s ({WINDOW_SIZE} pts)  "
-        f"stride: {STRIDE/SAMPLING_RATE}s ({STRIDE} pts)"
+        f"stride: {STRIDE/SAMPLING_RATE}s ({STRIDE} pts)  "
+        f"generalization: {GENERALIZATION}"
     )
 
     # Step 1: Pre-compute ONCE per subject (skips subjects already cached)
     precompute_all_subjects(all_subjects, config)
 
-    # Step 2: 10-fold cross-subject split
+    # Step 2: Stimulus split for generalization mode (if enabled)
+    train_stimuli: set[int] | None = None
+    val_stimuli: set[int] | None = None
+    if GENERALIZATION:
+        train_stimuli, val_stimuli = get_stimulus_generalization_split(TASK_MODE)
+        print(f"\nGeneralization mode: {len(train_stimuli)} train stimuli, {len(val_stimuli)} held-out stimuli")
+        print(f"  Train: {sorted(train_stimuli)}")
+        print(f"  Test:  {sorted(val_stimuli)}")
+
+    # Step 3: 10-fold cross-subject split
     folds = get_kfold_splits(all_subjects)
 
     folds_to_run = (
@@ -530,12 +589,15 @@ def main() -> None:
         else [(i + 1, folds[i]) for i in range(N_FOLDS)]
     )
 
-    # Step 3: Train fold(s) — collect per-fold metrics for final summary
+    # Step 4: Train fold(s) — collect per-fold metrics for final summary
     fold_results: list[dict] = []
     for fold_idx, (train_idx, val_idx) in folds_to_run:
         train_subjects = [all_subjects[i] for i in train_idx]
         val_subjects   = [all_subjects[i] for i in val_idx]
-        result = run_fold(fold_idx, train_subjects, val_subjects)
+        result = run_fold(
+            fold_idx, train_subjects, val_subjects,
+            train_stimuli=train_stimuli, val_stimuli=val_stimuli,
+        )
         fold_results.append(result)
 
     print("\nAll folds complete.")

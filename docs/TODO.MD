@@ -13,3 +13,5 @@ discard them first
 try dropout
 
 finetune (LoRA) with cross entropy loss only
+
+implement generalization test (exclude stimulus, see if nopool flat 30s window setting still works well -> if not, model is learning to identify stimuli rather than emotions.)
