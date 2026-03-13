@@ -4,7 +4,7 @@ data/*
 output
 output200
 output250
-outputs/*
+outputs/lp_checkpoints/lp*
 .venv
 models/*
 thesis_plan.pdf

@@ -1,0 +1,464 @@
+{
+  "task_mode": "9-class",
+  "completed_at": "2026-03-13T11:57:24.611003",
+  "n_seeds": 5,
+  "seeds": [
+    123,
+    456,
+    789,
+    101,
+    202
+  ],
+  "mean": {
+    "val_acc": 0.1788,
+    "val_auroc": 0.5562,
+    "val_f1": 0.1519
+  },
+  "std": {
+    "val_acc": 0.0106,
+    "val_auroc": 0.0105,
+    "val_f1": 0.015
+  },
+  "per_seed": [
+    {
+      "seed": 123,
+      "mean_acc": 0.1766,
+      "mean_auroc": 0.5519,
+      "mean_f1": 0.1469,
+      "folds": [
+        {
+          "fold": 1,
+          "val_acc": 0.1759,
+          "val_auroc": 0.5754,
+          "val_f1": 0.15,
+          "best_epoch": 32,
+          "epochs_trained": 47
+        },
+        {
+          "fold": 2,
+          "val_acc": 0.1746,
+          "val_auroc": 0.5381,
+          "val_f1": 0.1472,
+          "best_epoch": 4,
+          "epochs_trained": 19
+        },
+        {
+          "fold": 3,
+          "val_acc": 0.1667,
+          "val_auroc": 0.5482,
+          "val_f1": 0.143,
+          "best_epoch": 6,
+          "epochs_trained": 21
+        },
+        {
+          "fold": 4,
+          "val_acc": 0.1898,
+          "val_auroc": 0.5325,
+          "val_f1": 0.1631,
+          "best_epoch": 28,
+          "epochs_trained": 43
+        },
+        {
+          "fold": 5,
+          "val_acc": 0.1667,
+          "val_auroc": 0.5542,
+          "val_f1": 0.1293,
+          "best_epoch": 5,
+          "epochs_trained": 24
+        },
+        {
+          "fold": 6,
+          "val_acc": 0.1766,
+          "val_auroc": 0.5359,
+          "val_f1": 0.1536,
+          "best_epoch": 20,
+          "epochs_trained": 35
+        },
+        {
+          "fold": 7,
+          "val_acc": 0.162,
+          "val_auroc": 0.5743,
+          "val_f1": 0.1235,
+          "best_epoch": 11,
+          "epochs_trained": 26
+        },
+        {
+          "fold": 8,
+          "val_acc": 0.2037,
+          "val_auroc": 0.5566,
+          "val_f1": 0.1689,
+          "best_epoch": 50,
+          "epochs_trained": 65
+        },
+        {
+          "fold": 9,
+          "val_acc": 0.1806,
+          "val_auroc": 0.5238,
+          "val_f1": 0.1621,
+          "best_epoch": 13,
+          "epochs_trained": 28
+        },
+        {
+          "fold": 10,
+          "val_acc": 0.1693,
+          "val_auroc": 0.5804,
+          "val_f1": 0.1286,
+          "best_epoch": 19,
+          "epochs_trained": 34
+        }
+      ]
+    },
+    {
+      "seed": 456,
+      "mean_acc": 0.1828,
+      "mean_auroc": 0.5539,
+      "mean_f1": 0.157,
+      "folds": [
+        {
+          "fold": 1,
+          "val_acc": 0.1713,
+          "val_auroc": 0.5866,
+          "val_f1": 0.1536,
+          "best_epoch": 11,
+          "epochs_trained": 26
+        },
+        {
+          "fold": 2,
+          "val_acc": 0.166,
+          "val_auroc": 0.5599,
+          "val_f1": 0.1329,
+          "best_epoch": 26,
+          "epochs_trained": 41
+        },
+        {
+          "fold": 3,
+          "val_acc": 0.1898,
+          "val_auroc": 0.5368,
+          "val_f1": 0.1646,
+          "best_epoch": 8,
+          "epochs_trained": 23
+        },
+        {
+          "fold": 4,
+          "val_acc": 0.1991,
+          "val_auroc": 0.5529,
+          "val_f1": 0.1873,
+          "best_epoch": 47,
+          "epochs_trained": 62
+        },
+        {
+          "fold": 5,
+          "val_acc": 0.162,
+          "val_auroc": 0.5371,
+          "val_f1": 0.131,
+          "best_epoch": 1,
+          "epochs_trained": 16
+        },
+        {
+          "fold": 6,
+          "val_acc": 0.213,
+          "val_auroc": 0.5653,
+          "val_f1": 0.1883,
+          "best_epoch": 36,
+          "epochs_trained": 51
+        },
+        {
+          "fold": 7,
+          "val_acc": 0.1759,
+          "val_auroc": 0.5639,
+          "val_f1": 0.1481,
+          "best_epoch": 6,
+          "epochs_trained": 21
+        },
+        {
+          "fold": 8,
+          "val_acc": 0.1806,
+          "val_auroc": 0.5277,
+          "val_f1": 0.1648,
+          "best_epoch": 18,
+          "epochs_trained": 33
+        },
+        {
+          "fold": 9,
+          "val_acc": 0.1852,
+          "val_auroc": 0.541,
+          "val_f1": 0.1492,
+          "best_epoch": 6,
+          "epochs_trained": 21
+        },
+        {
+          "fold": 10,
+          "val_acc": 0.1852,
+          "val_auroc": 0.5679,
+          "val_f1": 0.1498,
+          "best_epoch": 5,
+          "epochs_trained": 20
+        }
+      ]
+    },
+    {
+      "seed": 789,
+      "mean_acc": 0.1629,
+      "mean_auroc": 0.5433,
+      "mean_f1": 0.1291,
+      "folds": [
+        {
+          "fold": 1,
+          "val_acc": 0.1806,
+          "val_auroc": 0.5671,
+          "val_f1": 0.1719,
+          "best_epoch": 7,
+          "epochs_trained": 22
+        },
+        {
+          "fold": 2,
+          "val_acc": 0.1481,
+          "val_auroc": 0.5264,
+          "val_f1": 0.1051,
+          "best_epoch": 7,
+          "epochs_trained": 22
+        },
+        {
+          "fold": 3,
+          "val_acc": 0.1759,
+          "val_auroc": 0.5578,
+          "val_f1": 0.1562,
+          "best_epoch": 26,
+          "epochs_trained": 41
+        },
+        {
+          "fold": 4,
+          "val_acc": 0.1667,
+          "val_auroc": 0.5039,
+          "val_f1": 0.1213,
+          "best_epoch": 3,
+          "epochs_trained": 18
+        },
+        {
+          "fold": 5,
+          "val_acc": 0.1806,
+          "val_auroc": 0.5481,
+          "val_f1": 0.1544,
+          "best_epoch": 50,
+          "epochs_trained": 65
+        },
+        {
+          "fold": 6,
+          "val_acc": 0.1508,
+          "val_auroc": 0.5287,
+          "val_f1": 0.1182,
+          "best_epoch": 20,
+          "epochs_trained": 35
+        },
+        {
+          "fold": 7,
+          "val_acc": 0.162,
+          "val_auroc": 0.552,
+          "val_f1": 0.1399,
+          "best_epoch": 6,
+          "epochs_trained": 29
+        },
+        {
+          "fold": 8,
+          "val_acc": 0.162,
+          "val_auroc": 0.5386,
+          "val_f1": 0.1313,
+          "best_epoch": 4,
+          "epochs_trained": 23
+        },
+        {
+          "fold": 9,
+          "val_acc": 0.1435,
+          "val_auroc": 0.5346,
+          "val_f1": 0.0956,
+          "best_epoch": 3,
+          "epochs_trained": 18
+        },
+        {
+          "fold": 10,
+          "val_acc": 0.1587,
+          "val_auroc": 0.5753,
+          "val_f1": 0.0974,
+          "best_epoch": 6,
+          "epochs_trained": 21
+        }
+      ]
+    },
+    {
+      "seed": 101,
+      "mean_acc": 0.192,
+      "mean_auroc": 0.5609,
+      "mean_f1": 0.1693,
+      "folds": [
+        {
+          "fold": 1,
+          "val_acc": 0.2083,
+          "val_auroc": 0.5903,
+          "val_f1": 0.2035,
+          "best_epoch": 14,
+          "epochs_trained": 29
+        },
+        {
+          "fold": 2,
+          "val_acc": 0.1587,
+          "val_auroc": 0.5354,
+          "val_f1": 0.1331,
+          "best_epoch": 5,
+          "epochs_trained": 20
+        },
+        {
+          "fold": 3,
+          "val_acc": 0.1944,
+          "val_auroc": 0.5584,
+          "val_f1": 0.1825,
+          "best_epoch": 7,
+          "epochs_trained": 22
+        },
+        {
+          "fold": 4,
+          "val_acc": 0.2083,
+          "val_auroc": 0.5656,
+          "val_f1": 0.1706,
+          "best_epoch": 64,
+          "epochs_trained": 79
+        },
+        {
+          "fold": 5,
+          "val_acc": 0.1667,
+          "val_auroc": 0.5692,
+          "val_f1": 0.1339,
+          "best_epoch": 8,
+          "epochs_trained": 23
+        },
+        {
+          "fold": 6,
+          "val_acc": 0.2143,
+          "val_auroc": 0.5623,
+          "val_f1": 0.1895,
+          "best_epoch": 40,
+          "epochs_trained": 55
+        },
+        {
+          "fold": 7,
+          "val_acc": 0.1806,
+          "val_auroc": 0.5588,
+          "val_f1": 0.1431,
+          "best_epoch": 31,
+          "epochs_trained": 46
+        },
+        {
+          "fold": 8,
+          "val_acc": 0.1944,
+          "val_auroc": 0.5694,
+          "val_f1": 0.1838,
+          "best_epoch": 44,
+          "epochs_trained": 59
+        },
+        {
+          "fold": 9,
+          "val_acc": 0.1667,
+          "val_auroc": 0.5207,
+          "val_f1": 0.1391,
+          "best_epoch": 4,
+          "epochs_trained": 19
+        },
+        {
+          "fold": 10,
+          "val_acc": 0.2275,
+          "val_auroc": 0.5786,
+          "val_f1": 0.2139,
+          "best_epoch": 17,
+          "epochs_trained": 32
+        }
+      ]
+    },
+    {
+      "seed": 202,
+      "mean_acc": 0.1798,
+      "mean_auroc": 0.5712,
+      "mean_f1": 0.1574,
+      "folds": [
+        {
+          "fold": 1,
+          "val_acc": 0.162,
+          "val_auroc": 0.5834,
+          "val_f1": 0.1424,
+          "best_epoch": 2,
+          "epochs_trained": 17
+        },
+        {
+          "fold": 2,
+          "val_acc": 0.1515,
+          "val_auroc": 0.561,
+          "val_f1": 0.1288,
+          "best_epoch": 5,
+          "epochs_trained": 20
+        },
+        {
+          "fold": 3,
+          "val_acc": 0.1991,
+          "val_auroc": 0.5963,
+          "val_f1": 0.1928,
+          "best_epoch": 25,
+          "epochs_trained": 40
+        },
+        {
+          "fold": 4,
+          "val_acc": 0.2176,
+          "val_auroc": 0.586,
+          "val_f1": 0.2035,
+          "best_epoch": 36,
+          "epochs_trained": 51
+        },
+        {
+          "fold": 5,
+          "val_acc": 0.1759,
+          "val_auroc": 0.569,
+          "val_f1": 0.1496,
+          "best_epoch": 39,
+          "epochs_trained": 54
+        },
+        {
+          "fold": 6,
+          "val_acc": 0.1759,
+          "val_auroc": 0.5316,
+          "val_f1": 0.15,
+          "best_epoch": 13,
+          "epochs_trained": 28
+        },
+        {
+          "fold": 7,
+          "val_acc": 0.1759,
+          "val_auroc": 0.5797,
+          "val_f1": 0.1552,
+          "best_epoch": 30,
+          "epochs_trained": 45
+        },
+        {
+          "fold": 8,
+          "val_acc": 0.1713,
+          "val_auroc": 0.5258,
+          "val_f1": 0.1421,
+          "best_epoch": 8,
+          "epochs_trained": 23
+        },
+        {
+          "fold": 9,
+          "val_acc": 0.1574,
+          "val_auroc": 0.5647,
+          "val_f1": 0.1274,
+          "best_epoch": 17,
+          "epochs_trained": 32
+        },
+        {
+          "fold": 10,
+          "val_acc": 0.2116,
+          "val_auroc": 0.6147,
+          "val_f1": 0.1819,
+          "best_epoch": 8,
+          "epochs_trained": 23
+        }
+      ]
+    }
+  ]
+}
