@@ -3,16 +3,20 @@ model.py — REVE LoRA Fine-Tuning Lightning Module.
 
 Provides:
   - REVELoRAModule: wraps the frozen REVE encoder with LoRA adapters on the
-    attention QKVO layers, an attention-pooling step, and a classification head.
+    attention QKVO layers, a configurable pooling step, and a classification head.
     Implements the two-phase training strategy from the REVE paper:
       Phase 1 — head-only (encoder frozen, LoRA frozen)
       Phase 2 — LoRA + head (LoRA adapters unfrozen, original weights still frozen)
+
+  - WarmupSchedulerCallback: Lightning callback implementing the REVE authors'
+    per-phase LR schedule: 10% linear warmup → 80% peak → 10% linear cooldown
+    to 1% of peak, applied within the first epoch of each training phase.
 """
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
-from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -39,21 +43,10 @@ class REVELoRAModule(L.LightningModule):
         Optionally, the cls_query_token is also unfrozen.
         Original REVE weights remain frozen throughout.
 
-    Args:
-        reve_model_path:  Path to the reve-base model directory.
-        reve_pos_path:    Path to the reve-positions model directory.
-        config:           THUEPConfig (supplies channel names for position bank).
-        num_classes:      2 (binary) or 9 (9-class).
-        lora_rank:        LoRA rank r.
-        lora_alpha:       LoRA scaling factor alpha.
-        lora_dropout:     Dropout on LoRA adapter outputs.
-        head_dropout:     Dropout before the classification head.
-        lr_head:          Learning rate for the classification head.
-        lr_lora:          Learning rate for LoRA adapters + cls_query_token.
-        phase1_epochs:    Number of head-only epochs before unfreezing LoRA.
-        warmup_epochs:    Linear LR warmup epochs at the start of Phase 2 (0 = disabled).
-        unfreeze_cls:     Whether to unfreeze cls_query_token in Phase 2.
-        mixup_alpha:      Beta distribution param for Mixup (0.0 = disabled).
+    Pooling strategies:
+        pool         — attention pooling via cls_query_token → (B, 512)
+        nopool_mean  — mean over channels → (B, H*512)
+        nopool_flat  — full flatten → (B, C*H*512)
     """
 
     def __init__(
@@ -68,15 +61,18 @@ class REVELoRAModule(L.LightningModule):
         head_dropout: float = 0.1,
         lr_head: float = 1e-3,
         lr_lora: float = 1e-4,
+        weight_decay: float = 0.01,
         phase1_epochs: int = 10,
-        warmup_epochs: int = 3,
         unfreeze_cls: bool = False,
         mixup_alpha: float = 0.0,
+        use_pooling: bool = True,
+        no_pool_mode: str = "mean",
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["config", "reve_model_path", "reve_pos_path"])
 
         self.phase = 1
+        self._head_initialized = False
 
         # Load REVE encoder
         reve = AutoModel.from_pretrained(
@@ -84,7 +80,6 @@ class REVELoRAModule(L.LightningModule):
             trust_remote_code=True,
             torch_dtype="auto",
         )
-        # Freeze all original weights
         for param in reve.parameters():
             param.requires_grad_(False)
 
@@ -97,6 +92,10 @@ class REVELoRAModule(L.LightningModule):
             bias="none",
         )
         self.reve = get_peft_model(reve, lora_cfg)
+
+        # Direct reference to the unwrapped REVE model (avoids fragile
+        # self.reve.base_model.model chains through the PEFT wrapper).
+        self._reve_unwrapped = self.reve.base_model.model
 
         # Freeze LoRA adapters for Phase 1 (head-only)
         for name, param in self.reve.named_parameters():
@@ -116,50 +115,84 @@ class REVELoRAModule(L.LightningModule):
         self.register_buffer("_pos_1d", pos_1d)
         del pos_bank
 
-        # Classification head
-        embed_dim = self.reve.base_model.model.embed_dim
-        self.head = nn.Sequential(
-            nn.Dropout(head_dropout),
-            nn.Linear(embed_dim, num_classes),
-        )
+        self.embed_dim = self._reve_unwrapped.embed_dim  # 512
+
+        # Classification head: initialized lazily for nopool modes
+        # (embed_dim depends on window size which is only known at first forward)
+        self.head: nn.Module | None = None
+        if use_pooling:
+            self._init_head(self.embed_dim)
 
         # Metrics
         task = "binary" if num_classes == 2 else "multiclass"
         metric_kwargs = dict(task=task, num_classes=num_classes, average="macro")
-        auroc_kwargs  = dict(task=task, num_classes=num_classes, average="macro")
 
         self.train_acc   = torchmetrics.Accuracy(**metric_kwargs)
         self.val_acc     = torchmetrics.Accuracy(**metric_kwargs)
-        self.train_auroc = torchmetrics.AUROC(**auroc_kwargs)
-        self.val_auroc   = torchmetrics.AUROC(**auroc_kwargs)
+        self.train_auroc = torchmetrics.AUROC(**metric_kwargs)
+        self.val_auroc   = torchmetrics.AUROC(**metric_kwargs)
         self.train_f1    = torchmetrics.F1Score(**metric_kwargs)
         self.val_f1      = torchmetrics.F1Score(**metric_kwargs)
 
-    # Forward
+    def _init_head(self, input_dim: int) -> None:
+        self.head = nn.Sequential(
+            nn.Dropout(self.hparams.head_dropout),
+            nn.Linear(input_dim, self.hparams.num_classes),
+        )
+        self._head_initialized = True
 
-    def forward(self, eeg: Tensor, pos: Tensor) -> Tuple[Tensor, Tensor]:
+    def _pool(self, x: Tensor) -> Tensor:
+        """
+        Aggregate the 4-D encoder output into a 1-D embedding.
+
+        Args:
+            x: (B, C, H, E) — channels x temporal patches x embed_dim
+
+        Returns:
+            (B, D) where D depends on pooling strategy:
+              pool:         D = E (512)
+              nopool_mean:  D = H * E
+              nopool_flat:  D = C * H * E
+        """
+        if self.hparams.use_pooling:
+            return self._reve_unwrapped.attention_pooling(x)  # (B, E)
+
+        B, C, H, E = x.shape
+        if self.hparams.no_pool_mode == "mean":
+            return x.mean(dim=1).reshape(B, H * E)       # (B, H*E)
+        else:  # flat
+            return x.reshape(B, C * H * E)               # (B, C*H*E)
+
+    def _ensure_head(self, emb: Tensor) -> None:
+        """Lazily initialize head on first forward pass for nopool modes."""
+        if not self._head_initialized:
+            self._init_head(emb.shape[-1])
+            self.head = self.head.to(emb.device)
+
+    def forward(self, eeg: Tensor) -> tuple[Tensor, Tensor]:
         """
         Args:
             eeg: (B, 30, T) raw EEG windows.
-            pos: (B, 30, 3) electrode positions.
         Returns:
             logits: (B, num_classes)
-            emb:    (B, 512) pooled embedding (for optional mixup)
+            emb:    (B, D) pooled embedding
         """
-        out_4d = self.reve(eeg, pos)  # (B, 30, H, 512)
-        emb = self.reve.base_model.model.attention_pooling(out_4d)  # (B, 512)
-        logits = self.head(emb)  # (B, num_classes)
+        B = eeg.shape[0]
+        pos = self._pos_1d.unsqueeze(0).expand(B, -1, -1)  # (B, 30, 3)
+        out_4d = self.reve(eeg, pos)                         # (B, 30, H, 512)
+        emb = self._pool(out_4d)                             # (B, D)
+        self._ensure_head(emb)
+        logits = self.head(emb)                              # (B, num_classes)
         return logits, emb
 
     # Training / Validation
 
-    def _shared_step(self, batch: Tuple[Tensor, Tensor], prefix: str) -> Tensor:
+    def _shared_step(self, batch: tuple[Tensor, Tensor], prefix: str) -> Tensor:
         eeg, labels = batch
         labels = labels.long()
         B = eeg.shape[0]
 
-        pos = self._pos_1d.unsqueeze(0).expand(B, -1, -1)  # (B, 30, 3)
-        logits, emb = self(eeg, pos)
+        logits, emb = self(eeg)
 
         # Mixup: only in Phase 2, only during training, only if enabled
         if (
@@ -175,7 +208,6 @@ class REVELoRAModule(L.LightningModule):
             logits_mixed = self.head(mixed_emb)
             loss = lam * F.cross_entropy(logits_mixed, labels) + \
                    (1.0 - lam) * F.cross_entropy(logits_mixed, labels[perm])
-            # Use un-mixed logits for metrics (cleaner evaluation)
             logits_for_metrics = logits
         else:
             loss = F.cross_entropy(logits, labels)
@@ -202,10 +234,10 @@ class REVELoRAModule(L.LightningModule):
 
         return loss
 
-    def training_step(self, batch: Tuple[Tensor, Tensor], batch_idx: int) -> Tensor:
+    def training_step(self, batch: tuple[Tensor, Tensor], batch_idx: int) -> Tensor:
         return self._shared_step(batch, prefix="train")
 
-    def validation_step(self, batch: Tuple[Tensor, Tensor], batch_idx: int) -> None:
+    def validation_step(self, batch: tuple[Tensor, Tensor], batch_idx: int) -> None:
         self._shared_step(batch, prefix="val")
 
     # Phase switching
@@ -219,9 +251,8 @@ class REVELoRAModule(L.LightningModule):
                     param.requires_grad_(True)
                     n_unfrozen += param.numel()
 
-            # Optionally unfreeze cls_query_token
             if self.hparams.unfreeze_cls:
-                cls_token = self.reve.base_model.model.cls_query_token
+                cls_token = self._reve_unwrapped.cls_query_token
                 cls_token.requires_grad_(True)
                 n_unfrozen += cls_token.numel()
 
@@ -229,41 +260,26 @@ class REVELoRAModule(L.LightningModule):
                 f"\n>>> Phase 2 started at epoch {self.current_epoch}  "
                 f"({n_unfrozen:,} LoRA params unfrozen)"
             )
-            if self.hparams.warmup_epochs > 0:
-                print(
-                    f"    LR warmup: {self.hparams.warmup_epochs} epochs  "
-                    f"(lr_lora: {self.hparams.lr_lora * (1 / self.hparams.warmup_epochs):.2e} → "
-                    f"{self.hparams.lr_lora:.2e})\n"
-                )
-
-        # Linear warmup for LoRA/cls params at the start of Phase 2
-        if self.phase == 2 and self.hparams.warmup_epochs > 0:
-            phase2_epoch = self.current_epoch - self.hparams.phase1_epochs
-            if phase2_epoch < self.hparams.warmup_epochs:
-                warmup_factor = (phase2_epoch + 1) / self.hparams.warmup_epochs
-                optimizer = self.optimizers().optimizer
-                for pg in optimizer.param_groups:
-                    if pg.get("name") in ("lora", "cls"):
-                        pg["lr"] = self.hparams.lr_lora * warmup_factor
 
         self.log("phase", float(self.phase), on_step=False, on_epoch=True)
 
-    # Optimiser + LR schedule
+    # Optimiser
 
     def configure_optimizers(self):
-        head_params = list(self.head.parameters())
+        wd = self.hparams.weight_decay
+
+        head_params = list(self.head.parameters()) if self.head is not None else []
         lora_params = [
             p for n, p in self.reve.named_parameters() if "lora_" in n
         ]
 
         param_groups = [
-            {"params": head_params, "lr": self.hparams.lr_head, "weight_decay": 0.01, "name": "head"},
-            {"params": lora_params, "lr": self.hparams.lr_lora, "weight_decay": 0.01, "name": "lora"},
+            {"params": head_params, "lr": self.hparams.lr_head, "weight_decay": wd, "name": "head"},
+            {"params": lora_params, "lr": self.hparams.lr_lora, "weight_decay": wd, "name": "lora"},
         ]
 
-        # Add cls_query_token to optimizer if it may be unfrozen
         if self.hparams.unfreeze_cls:
-            cls_token = self.reve.base_model.model.cls_query_token
+            cls_token = self._reve_unwrapped.cls_query_token
             param_groups.append(
                 {"params": [cls_token], "lr": self.hparams.lr_lora, "weight_decay": 0.0, "name": "cls"}
             )
@@ -282,3 +298,98 @@ class REVELoRAModule(L.LightningModule):
                 "interval": "epoch",
             },
         }
+
+
+class WarmupSchedulerCallback(L.Callback):
+    """
+    REVE authors' per-phase LR warmup schedule.
+
+    Within the first epoch of each training phase:
+      - 10% of batches: linear warmup from 1% to 100% of target LR
+      - 80% of batches: hold at peak (target LR)
+      - 10% of batches: linear cooldown from 100% to 1% of target LR
+
+    After the warmup epoch, LR is left at the peak value for the optimizer's
+    ReduceLROnPlateau to manage.
+
+    Args:
+        phase1_epochs: number of Phase 1 epochs (Phase 2 starts at this epoch).
+        lr_head:       target LR for the head param group.
+        lr_lora:       target LR for the lora/cls param groups.
+    """
+
+    def __init__(self, phase1_epochs: int, lr_head: float, lr_lora: float) -> None:
+        super().__init__()
+        self.phase1_epochs = phase1_epochs
+        self.lr_head = lr_head
+        self.lr_lora = lr_lora
+        self._warmup_active = False
+        self._total_batches: int | None = None
+        self._current_phase_start_epoch: int | None = None
+
+    def _is_warmup_epoch(self, trainer: L.Trainer, pl_module: L.LightningModule) -> bool:
+        epoch = trainer.current_epoch
+        # Phase 1 warmup: epoch 0
+        if epoch == 0:
+            return True
+        # Phase 2 warmup: first epoch after phase switch
+        if epoch == self.phase1_epochs:
+            return True
+        return False
+
+    def _get_target_lr(self, group_name: str) -> float:
+        if group_name == "head":
+            return self.lr_head
+        return self.lr_lora  # lora, cls
+
+    def _warmup_factor(self, step: int, total: int) -> float:
+        """Return LR multiplier (0.01 to 1.0) for the REVE warmup schedule."""
+        if total <= 0:
+            return 1.0
+
+        warmup_end = int(total * 0.10)
+        peak_end   = int(total * 0.90)
+
+        if step < warmup_end:
+            # Linear warmup: 1% → 100%
+            t = step / max(warmup_end, 1)
+            return 0.01 + 0.99 * t
+        elif step < peak_end:
+            # Peak: 100%
+            return 1.0
+        else:
+            # Linear cooldown: 100% → 1%
+            t = (step - peak_end) / max(total - peak_end, 1)
+            return 1.0 - 0.99 * t
+
+    def on_train_epoch_start(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        self._warmup_active = self._is_warmup_epoch(trainer, pl_module)
+        if self._warmup_active:
+            self._total_batches = trainer.num_training_batches
+            phase_label = "Phase 1" if trainer.current_epoch < self.phase1_epochs else "Phase 2"
+            print(f"    [{phase_label}] LR warmup active for epoch {trainer.current_epoch} "
+                  f"({self._total_batches} batches)")
+
+    def on_train_batch_start(
+        self, trainer: L.Trainer, pl_module: L.LightningModule,
+        batch, batch_idx: int,
+    ) -> None:
+        if not self._warmup_active:
+            return
+
+        factor = self._warmup_factor(batch_idx, self._total_batches)
+        optimizer = trainer.optimizers[0]
+
+        for pg in optimizer.param_groups:
+            name = pg.get("name", "")
+            target_lr = self._get_target_lr(name)
+            pg["lr"] = target_lr * factor
+
+    def on_train_epoch_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
+        if self._warmup_active:
+            # Ensure LR is at peak after warmup epoch
+            optimizer = trainer.optimizers[0]
+            for pg in optimizer.param_groups:
+                name = pg.get("name", "")
+                pg["lr"] = self._get_target_lr(name)
+            self._warmup_active = False

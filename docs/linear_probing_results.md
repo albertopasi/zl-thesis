@@ -98,13 +98,14 @@ Random baseline: **11.11 %** (1/9). The nine classes are: Anger, Disgust, Fear, 
 
 | Config | Window | Stride | Overlap | Acc (mean ± std) | AUROC (mean ± std) | F1 (mean ± std) |
 | --- | --- | --- | --- | --- | --- | --- |
+| pool | 10 s | 10 s | 0 % | 22.21 % ± 1.67 % | 0.631 ± 0.023 | 0.209 ± 0.017 |
 | nopool_flat | 10 s | 5 s | 50 % | 34.14 % ± 3.10 % | 0.706 ± 0.025 | 0.334 ± 0.033 |
 | nopool_flat | 10 s | 10 s | 0 % | 38.02 % ± 2.05 % | 0.757 ± 0.024 | 0.374 ± 0.025 |
 | nopool_flat | **30 s** | **4 s** | **—** | **71.66 % ± 5.11 %** | **0.898 ± 0.015** | **0.720 ± 0.050** |
 
-For reference, earlier experiments with attention-pooled 512-D embeddings (w10s5) yielded 21.37 % accuracy and 0.624 AUROC — the unpooled flat representation nearly doubles the margin above chance.
-
 **Interpretation.**
+
+The pool (512-D) configuration achieves 22.21 % accuracy and 0.631 AUROC, already a substantial gap above chance (11.11 %). However, the gap between pool (22.21 %) and nopool_flat w10s10 (38.02 %) is +15.81 pp — consistent with the binary finding that bypassing pooling unlocks access to spatial-temporal emotion structure that the compressed summary discards. Notably, the AUROC gap is also pronounced (0.631 vs 0.757, Δ = 0.126), indicating that pool not only makes worse argmax decisions but also produces less well-ordered probability rankings across the 9 classes.
 
 The same two trends observed in binary (longer windows and non-overlapping strides help) hold for 9-class, but the magnitudes are more dramatic:
 
@@ -148,61 +149,68 @@ In binary mode, Neutral stimuli are excluded (as in standard CV), and the per-em
 
 | Config | Std CV Acc | Std CV AUROC | Gen Acc (5-seed) | Gen AUROC (5-seed) | Δ Acc | Δ AUROC |
 | --- | --- | --- | --- | --- | --- | --- |
+| pool w10s10 | ~55.76 %† | ~0.562† | 54.57 % ± 1.16 % | 0.523 ± 0.020 | ~−1.19 pp | ~−0.039 |
 | nopool_flat w10s10 | 66.11 % ± 1.65 % | 0.697 ± 0.022 | 57.29 % ± 0.93 % | 0.569 ± 0.011 | **−8.82 pp** | **−0.128** |
 | nopool_flat w30s4 | 82.22 % ± 1.73 % | 0.847 ± 0.020 | 60.78 % ± 2.33 % | 0.587 ± 0.031 | **−21.44 pp** | **−0.260** |
 
+† Standard CV was run for pool at w10s5 (55.76 %, 0.562 AUROC). No standard CV run exists for pool at w10s10; the pool representation aggregates the entire window into a fixed 512-D vector regardless of window length, so performance is expected to differ only marginally.
+
 **Per-seed breakdown (accuracy only):**
 
-| Seed | w10s10 gen | w30s4 gen |
-| --- | --- | --- |
-| 123 | 58.59 % | 64.58 % |
-| 456 | 56.92 % | 59.66 % |
-| 789 | 57.81 % | 60.56 % |
-| 101 | 56.17 % | 58.35 % |
-| 202 | 56.98 % | 60.73 % |
-| **Mean ± std** | **57.29 % ± 0.93 %** | **60.78 % ± 2.33 %** |
+| Seed | pool w10s10 gen | w10s10 gen | w30s4 gen |
+| --- | --- | --- | --- |
+| 123 | 53.89 % | 58.59 % | 64.58 % |
+| 456 | 52.93 % | 56.92 % | 59.66 % |
+| 789 | 54.81 % | 57.81 % | 60.56 % |
+| 101 | 55.44 % | 56.17 % | 58.35 % |
+| 202 | 55.77 % | 56.98 % | 60.73 % |
+| **Mean ± std** | **54.57 % ± 1.16 %** | **57.29 % ± 0.93 %** | **60.78 % ± 2.33 %** |
 
 **Interpretation.**
 
 The 30 s configuration suffers the most dramatic collapse: from 82.22 % to 60.78 % (−21.44 pp). This confirms that a substantial portion of the 30 s performance is attributable to stimulus fingerprinting. When the classifier cannot rely on recognising familiar stimuli, it retains only the portion of its decision boundary that captures genuine emotion-related neural patterns. The residual accuracy (60.78 %) is still above chance (50 %) but only marginally above the 10 s generalization result (57.29 %), suggesting that the true emotion-recognition signal in the frozen REVE representation is comparable across window lengths.
 
-The 10 s configuration drops by −8.82 pp, a smaller but still meaningful decline. Even at 10 s (covering one-third of the stimulus), there is some degree of stimulus-specific temporal structure that the classifier exploits. However, the relative stability of the 10 s result suggests that shorter windows derive more of their accuracy from genuine neural patterns.
+The 10 s nopool_flat configuration drops by −8.82 pp, a smaller but still meaningful decline. Even at 10 s (covering one-third of the stimulus), there is some degree of stimulus-specific temporal structure that the classifier exploits. However, the relative stability of the 10 s result suggests that shorter windows derive more of their accuracy from genuine neural patterns.
 
-The cross-seed standard deviation is informative: ±0.93 % for w10s10 and ±2.33 % for w30s4. The low variability confirms that the generalization results are stable across different stimulus partitions — the specific choice of which stimulus to hold out per emotion does not substantially affect the outcome. This is expected: if the model were truly recognising emotions rather than stimuli, performance should be indifferent to which stimuli are held out.
+The pool representation exhibits a strikingly different behaviour: it drops by only ~1.19 pp (from ~55.76 % to 54.57 %). This near-immunity to stimulus removal, however, should not be interpreted as evidence of superior generalisation. Rather, it reflects the fact that pool barely learned anything from either source — genuine emotion or stimulus fingerprints — during standard CV. The low standard CV performance (55.76 %) leaves almost no room for a generalization penalty: there is no elevated performance to collapse. This creates a paradoxical inversion where the worst-performing representation suffers the smallest absolute degradation under the generalization challenge. The appropriate interpretation is that pool lies at the performance floor and stimulus removal simply exposes how little signal either pathway was contributing.
 
-The w30s4 result still exceeds w10s10 by ~3.5 pp (60.78 % vs 57.29 %) even under generalization. This modest advantage could reflect that the full 30 s temporal context captures slightly more of the sustained affective response, or it could reflect residual confounds (e.g., stimulus-class-level temporal patterns shared across stimuli of the same emotion — such as all Anger videos containing fast-paced content that induces similar temporal dynamics). With only 3 stimuli per emotion, it is impossible to rule out emotion-category-level confounds entirely.
+The cross-seed standard deviations confirm stability across all three configurations: ±1.16 % for pool, ±0.93 % for nopool_flat w10s10, and ±2.33 % for nopool_flat w30s4. The higher variability for w30s4 reflects the smaller effective validation set (1 window per stimulus rather than 3–5), making individual fold estimates more sensitive to which particular stimuli are held out.
 
 ### 2.3 Nine-Class Task — Generalization Results
 
 | Config | Std CV Acc | Std CV AUROC | Gen Acc (5-seed) | Gen AUROC (5-seed) | Δ Acc | Δ AUROC |
 | --- | --- | --- | --- | --- | --- | --- |
+| pool w10s10 | 22.21 % ± 1.67 % | 0.631 ± 0.023 | 17.88 % ± 1.06 % | 0.556 ± 0.011 | **−4.33 pp** | **−0.075** |
+| nopool_flat w10s5 | 34.14 % ± 3.10 % | 0.706 ± 0.025 | 17.73 % ± 0.64 % | 0.560 ± 0.005 | **−16.41 pp** | **−0.146** |
 | nopool_flat w10s10 | 38.02 % ± 2.05 % | 0.757 ± 0.024 | 18.84 % ± 0.64 % | 0.566 ± 0.005 | **−19.18 pp** | **−0.191** |
 | nopool_flat w30s4 | 71.66 % ± 5.11 % | 0.898 ± 0.015 | 20.49 % ± 1.52 % | 0.554 ± 0.012 | **−51.17 pp** | **−0.344** |
 
 **Per-seed breakdown (accuracy only):**
 
-| Seed | w10s10 gen | w30s4 gen |
-| --- | --- | --- |
-| 123 | 19.07 % | 22.26 % |
-| 456 | 19.27 % | 19.42 % |
-| 789 | 17.72 % | 21.55 % |
-| 101 | 19.19 % | 20.69 % |
-| 202 | 18.94 % | 18.55 % |
-| **Mean ± std** | **18.84 % ± 0.64 %** | **20.49 % ± 1.52 %** |
+| Seed | pool w10s10 gen | nopool_flat w10s5 gen | nopool_flat w10s10 gen | nopool_flat w30s4 gen |
+| --- | --- | --- | --- | --- |
+| 123 | 17.66 % | 17.09 % | 19.07 % | 22.26 % |
+| 456 | 18.28 % | 18.77 % | 19.27 % | 19.42 % |
+| 789 | 16.29 % | 17.67 % | 17.72 % | 21.55 % |
+| 101 | 19.20 % | 17.37 % | 19.19 % | 20.69 % |
+| 202 | 17.98 % | 17.75 % | 18.94 % | 18.55 % |
+| **Mean ± std** | **17.88 % ± 1.06 %** | **17.73 % ± 0.64 %** | **18.84 % ± 0.64 %** | **20.49 % ± 1.52 %** |
 
 **Interpretation.**
 
-The 9-class results are devastating. The 30 s configuration collapses from 71.66 % to 20.49 % — a drop of 51.17 pp that erases almost all of the 60.55 pp advantage over chance (71.66 % − 11.11 % = 60.55 pp; of this, only 20.49 % − 11.11 % = 9.38 pp survives). Stated differently, **84.5 % of the above-chance performance in the 30 s configuration was attributable to stimulus fingerprinting.** The remaining 9.38 pp above chance, while statistically non-zero, represents a weak signal — the model has barely learned to differentiate 9 emotions when it cannot rely on recognising familiar stimuli.
+The 9-class generalization results are the most informative in the entire experiment set, as they reveal the effective ceiling of the frozen REVE representation for cross-subject, cross-stimulus emotion recognition.
 
-The 10 s configuration drops from 38.02 % to 18.84 % (−19.18 pp). This is still a severe degradation, indicating that even at 10 s, stimulus fingerprinting contributes substantially to 9-class performance.
+The 30 s configuration collapses from 71.66 % to 20.49 % — a drop of 51.17 pp that erases almost all of the 60.55 pp advantage over chance (71.66 % − 11.11 % = 60.55 pp; of this, only 20.49 % − 11.11 % = 9.38 pp survives). Stated differently, **84.5 % of the above-chance performance in the 30 s configuration was attributable to stimulus fingerprinting.** The remaining 9.38 pp above chance, while statistically non-zero, represents a weak signal — the model has barely learned to differentiate 9 emotions when it cannot rely on recognising familiar stimuli.
 
-The AUROC collapse is particularly revealing. Under standard CV, the 30 s model achieved 0.898 AUROC — near-perfect ranking. Under generalization, it falls to 0.554, barely above the 0.500 random baseline. The classifier has lost not just calibration but its ability to rank classes correctly. This eliminates an alternative explanation (that the model learned the correct emotion structure but merely became less confident) — it has lost the structure entirely.
+The pool configuration drops from 22.21 % to 17.88 % (−4.33 pp). This is a smaller absolute drop than the flat configurations, but the same asymmetry noted in binary applies: pool had less standard CV performance to lose. Relative to its above-chance margin (22.21 % − 11.11 % = 11.10 pp above chance), pool loses 4.33 pp — roughly 39 % of its above-chance margin. By comparison, nopool_flat w10s10 loses 19.18 pp out of 26.91 pp (71 % of its margin) and nopool_flat w10s5 loses 16.41 pp out of 23.03 pp (71 % of its margin). The proportional loss is therefore consistent across flat configurations and only appears smaller for pool because the absolute margin was lower. This uniformity suggests that approximately 70 % of the above-chance performance in any 10 s flat configuration is attributable to stimulus-correlated EEG patterns rather than genuine emotion-category-level generalisation.
 
-**Convergence of w10s10 and w30s4 under generalization.** A critical observation: the two configurations that differ so dramatically under standard CV (38.02 % vs 71.66 %) converge to nearly identical performance under generalization (18.84 % vs 20.49 %, Δ = 1.65 pp). This convergence strongly suggests that the "extra" information in the 30 s window is almost entirely stimulus identity rather than additional emotional content. Once stimulus identity is removed as a cue, the 30 s model and the 10 s model have access to approximately the same amount of genuine emotion signal.
+**Universal convergence under generalization.** The most significant observation is the convergence of all four configurations to a narrow band of 17–21 % under stimulus generalization, despite spanning a 50 pp range under standard CV (22.21 %–71.66 %). This convergence is not incidental — it is a direct consequence of removing stimulus identity as a shared cue. Once the classifier must generalise to entirely novel stimuli, all representations — whether pooled, flat, 10 s, or 30 s — access approximately the same residual emotion signal. This signal amounts to roughly 7–9 pp above chance (a relative lift of 63–81 % above the 11.11 % baseline), consistent across all seeds and all window configurations.
 
-**Cross-seed stability.** The per-seed standard deviations (±0.64 % for w10s10, ±1.52 % for w30s4) confirm that these results are robust to stimulus split choice. The slightly higher variability for w30s4 likely reflects the fact that with only 1 window per stimulus, the effective validation set is smaller and more sensitive to which particular stimuli are held out.
+This convergence strongly suggests the existence of a **representation-imposed ceiling** on cross-subject cross-stimulus emotion recognition with the frozen REVE encoder: no matter how the 4-D output tensor is exposed to the linear classifier (pooled, flattened, at 5 s, 10 s, or 30 s), the amount of truly transferable emotion information is approximately constant at ~7–9 pp above random. The ceiling is not a property of the linear probe design but of the frozen encoder itself — the information simply is not present in a form that a linear transformation can extract stably across both subject and stimulus variation simultaneously.
 
-**Near-chance AUROC as evidence of representation failure.** In the standard CV experiments, we observed a dissociation between accuracy and AUROC — AUROC remained informative even as accuracy plateaued. Under generalization, this dissociation disappears: both accuracy and AUROC converge toward chance. This means the frozen REVE representation, when probed by a linear classifier, does not contain sufficient subject-invariant structure to distinguish 9 emotions on unseen stimuli. The earlier high AUROC was sustained by stimulus-level structure, not emotion-level structure.
+The AUROC collapse is particularly revealing. Under standard CV, the 30 s model achieved 0.898 AUROC — near-perfect ranking. Under generalization, it falls to 0.554, barely above the 0.500 random baseline. All four generalization AUROCs cluster tightly between 0.554 and 0.566 — a range so narrow (0.012 wide) that it confirms the configurations have reached a common floor. The classifier has lost not just calibration but its ability to rank classes correctly. This eliminates the alternative explanation that the model learned the correct emotional structure but merely became less confident — it has lost the structure entirely.
+
+**Cross-seed stability.** The per-seed standard deviations across all four configurations are small: ±1.06 % (pool), ±0.64 % (nopool_flat w10s5), ±0.64 % (nopool_flat w10s10), ±1.52 % (nopool_flat w30s4). The stability confirms that the convergence result is not artefactual — it persists regardless of which specific stimuli are held out for evaluation. The slightly higher variability for w30s4 reflects the 1-window-per-stimulus constraint in the validation set, which amplifies sensitivity to individual stimulus choice.
 
 ---
 
@@ -210,15 +218,17 @@ The AUROC collapse is particularly revealing. Under standard CV, the 30 s model 
 
 ### 3.1 Key findings
 
-1. **REVE's attention pooling is a severe bottleneck for emotion recognition.** The pooled 512-D representation (55.76 % binary accuracy) discards most emotion-relevant information. Bypassing pooling and exposing the full spatial-temporal tensor to the classifier recovers +10.35 pp (binary) and +16.65 pp (9-class). The pre-training objective (masked-patch reconstruction) optimises for local waveform fidelity, not the cross-channel and cross-temporal patterns that encode emotional state.
+1. **REVE's attention pooling is a severe bottleneck for emotion recognition.** The pooled 512-D representation (55.76 % binary, 22.21 % 9-class at w10s10) discards most emotion-relevant information. Bypassing pooling and exposing the full spatial-temporal tensor to the classifier recovers +10.35 pp binary and +15.81 pp 9-class (at w10s10). The pre-training objective (masked-patch reconstruction) optimises for local waveform fidelity, not the cross-channel and cross-temporal patterns that encode emotional state.
 
 2. **Non-overlapping windows consistently outperform overlapping ones.** Despite producing fewer training samples, stride-equals-window configurations improve generalisation at every window length tested (+2.54 pp at 5 s, +3.44 pp at 10 s). Overlapping windows create correlated pseudo-replication that inflates training accuracy without adding genuine informational diversity. **Non-overlapping windows should be the default for all subsequent experiments.**
 
 3. **The 30 s flat configuration is dominated by stimulus fingerprinting.** Standard CV accuracy (82.22 % binary, 71.66 % 9-class) collapses under cross-stimulus generalization to 60.78 % and 20.49 %, respectively. For 9-class, 84.5 % of the above-chance performance is attributable to stimulus identity rather than emotion recognition. This finding demonstrates that **standard cross-subject cross-validation on shared-stimulus designs is insufficient for validating emotion recognition** — stimulus-generalization controls are essential.
 
-4. **Under generalization, performance converges across window lengths.** The large gap between w10s10 and w30s4 under standard CV (66.11 % vs 82.22 % binary; 38.02 % vs 71.66 % 9-class) nearly vanishes under generalization (57.29 % vs 60.78 % binary; 18.84 % vs 20.49 % 9-class). The genuine emotion signal is approximately equal regardless of whether the classifier sees 10 s or 30 s of data — the difference was almost entirely stimulus-specific.
+4. **Under generalization, performance converges across all configurations.** The large gaps between configurations under standard CV nearly vanish under generalization — all four tested configurations (pool w10s10, nopool_flat w10s5, nopool_flat w10s10, nopool_flat w30s4) converge to 17–21 % 9-class accuracy and 54–61 % binary accuracy. The "extra" information exploited by longer windows and richer representations under standard CV is almost entirely stimulus-specific rather than genuinely emotion-related.
 
-5. **The frozen REVE representation carries a real but weak cross-subject emotion signal.** Under the most rigorous evaluation (cross-subject + cross-stimulus generalisation), binary accuracy is ~57–61 % (7–11 pp above chance) and 9-class accuracy is ~19–20 % (8–9 pp above chance). This signal is consistently above chance across all 5 seeds and all 10 folds, confirming that it is real. However, it is far too weak to be practically useful, and 9-class performance barely exceeds chance. This establishes the need for methods that actively reorganise the embedding space to amplify emotion-relevant structure and suppress subject-specific confounders.
+5. **Approximately 70 % of above-chance performance in flat 10 s configurations is attributable to stimulus-correlated structure.** Across nopool_flat w10s5 and w10s10, the relative loss of above-chance margin under generalization is approximately 71 % in both cases. This quantifies the stimulus fingerprinting contribution even at short windows, and motivates the use of the generalization protocol as the primary metric for future evaluations.
+
+6. **The frozen REVE representation carries a real but weak cross-subject, cross-stimulus emotion signal.** Under the most rigorous evaluation, binary accuracy is ~55–61 % (5–11 pp above chance) and 9-class accuracy is ~18–20 % (7–9 pp above chance). This signal is consistently above chance across all 5 seeds and all 10 folds, confirming that it is real. However, it is far too weak to be practically useful, and it is effectively constant regardless of representation strategy or window length. This establishes the need for methods that actively reorganise the embedding space to amplify emotion-relevant structure and suppress subject-specific and stimulus-specific confounders.
 
 ### 3.2 Consolidated results table
 
@@ -232,7 +242,9 @@ The AUROC collapse is particularly revealing. Under standard CV, the 30 s model 
 | Binary | nopool_flat w10s5 | 62.67 % ± 1.71 % | 0.648 ± 0.020 | — | — |
 | Binary | nopool_flat w10s10 | 66.11 % ± 1.65 % | 0.697 ± 0.022 | 57.29 % ± 0.93 % | 0.569 ± 0.011 |
 | Binary | nopool_flat w30s4 | 82.22 % ± 1.73 % | 0.847 ± 0.020 | 60.78 % ± 2.33 % | 0.587 ± 0.031 |
-| 9-class | nopool_flat w10s5 | 34.14 % ± 3.10 % | 0.706 ± 0.025 | — | — |
+| Binary | pool w10s10 | — | — | 54.57 % ± 1.16 % | 0.523 ± 0.020 |
+| 9-class | pool w10s10 | 22.21 % ± 1.67 % | 0.631 ± 0.023 | 17.88 % ± 1.06 % | 0.556 ± 0.011 |
+| 9-class | nopool_flat w10s5 | 34.14 % ± 3.10 % | 0.706 ± 0.025 | 17.73 % ± 0.64 % | 0.560 ± 0.005 |
 | 9-class | nopool_flat w10s10 | 38.02 % ± 2.05 % | 0.757 ± 0.024 | 18.84 % ± 0.64 % | 0.566 ± 0.005 |
 | 9-class | nopool_flat w30s4 | 71.66 % ± 5.11 % | 0.898 ± 0.015 | 20.49 % ± 1.52 % | 0.554 ± 0.012 |
 

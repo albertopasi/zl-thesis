@@ -119,6 +119,7 @@ class THUEPWindowDataset(Dataset):
         data_root: Path,
         window_size: int = 1600,
         stride: int = 800,
+        stimulus_filter: Optional[set[int]] = None,
     ) -> None:
         super().__init__()
 
@@ -130,6 +131,7 @@ class THUEPWindowDataset(Dataset):
         self.data_root = Path(data_root)
         self.window_size = window_size
         self.stride = stride
+        self.stimulus_filter = stimulus_filter
 
         # Build stimulus → label lookup for this task mode.
         self._label_map = _build_stimulus_label_map(task_mode)
@@ -163,6 +165,10 @@ class THUEPWindowDataset(Dataset):
                 # Skip stimuli whose label is None (neutral in binary mode)
                 label = self._label_map.get(stim_idx)
                 if label is None:
+                    continue
+
+                # Skip stimuli not in the filter set (generalization mode)
+                if stimulus_filter is not None and stim_idx not in stimulus_filter:
                     continue
 
                 # Add one entry per window

@@ -2,7 +2,7 @@
 dataset.py — LP-specific dataset classes.
 
 Provides:
-  - EmbeddedDataset: thin wrapper over pre-computed 512-D REVE embedding tensors.
+  - EmbeddedDataset: thin wrapper over pre-computed REVE embedding tensors.
 
 Shared dataset utilities (THUEPWindowDataset, label maps, excluded subjects/stimuli)
 live in src.thu_ep.dataset.
